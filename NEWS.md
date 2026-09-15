@@ -108,6 +108,16 @@
   warning to `runSIR()` when it is emitted by `plot(type = "convergence")`.
   Both corrected.
 
+* **The restriction to `focei` fits is now documented as a deliberate
+  difference from PsN**, with the measurement behind it: a SAEM fit of
+  `theo_sd` stores an objective of 208.512 against 205.820 from FOCEi
+  re-evaluation at the same estimates, and that 2.69-unit gap does not cancel
+  under `recenter = TRUE`. PsN's `set_maxeval_zero()` handles classical methods
+  and `IMP`/`IMPMAP` and only warns for anything else -- and discards the
+  failure flag, so its SIR proceeds. `runSIR()` aborts in the preflight
+  instead. The absence of any stochastic-evaluator path, and what its sampling
+  noise would do to the importance weights, is documented alongside it.
+
 * PsN is now described as a comparator and a source of numerical oracles rather
   than as the specification, and the claim to enumerate every deliberate
   difference is replaced. The draw-attempt budget (`10 * nSamples` against

@@ -212,6 +212,7 @@ cannot express that asymmetry, which is a large part of why SIR is run at all.
 | RSE / correlation plot | `plot(type = "rsecor")` | supported |
 | `empirical_statistics()` output | `sirSummary()` | supported |
 | `<model>_sir.cov` | `<fitName>_sir.cov` | supported |
+| estimation methods accepted | `focei` only | deliberate difference — PsN accepts classical + IMP/IMPMAP and warns-but-continues on others; see below |
 | draw-attempt budget | `10 x nSamples` | deliberate difference — PsN uses `2000 x nSamples`; see below |
 | OMEGA/SIGMA block adjustment after prolonged rejection | — | deliberate difference — not implemented; see below |
 | `-auto_rawres` | — | not implemented |
@@ -259,6 +260,25 @@ parameterization and define the estimand against a flat measure there, and the
 two disagree by the Jacobian of that reparameterization. Two models that are
 reparameterizations of each other can give different SIR intervals. That is a
 property of the estimand, not a defect.
+
+**Only `focei` fits are accepted, and the refusal is an error.** `runSIR()`
+scores candidates by building a FOCEi call, so a fit whose objective came from
+another likelihood approximation would have its candidates scored on one
+surface and its reference `fit$objf` taken from another. On a SAEM fit of
+`theo_sd` the stored objective is 208.512 (Gaussian quadrature) against 205.820
+from FOCEi re-evaluation at the same estimates — a 2.69-unit gap that is a
+different function, not noise. It does not cancel: under `recenter = TRUE` the
+centre scores dOFV ≈ −2.69 and the run "finds" a better optimum made entirely
+of the offset. The preflight rejects such a fit before any directory is created.
+
+PsN's equivalent check lives in `set_maxeval_zero()`, which sets `MAXEVAL=0`
+for classical methods and `EONLY=1` for `IMP`/`IMPMAP`, but for anything else —
+`SAEM` included — only sets an internal failure flag and prints a warning. That
+flag is discarded by its caller, so the run proceeds with evaluation models
+that still carry the original method. PsN therefore supports more methods than
+`nlmixr2sir` does overall, while being more permissive at the edge; this
+package refuses rather than warns. Adding a method here means validating an
+evaluator that reproduces its objective, not adding a string to a list.
 
 **The draw-attempt budget is `10 x nSamples`**, where PsN uses
 `2000 x nSamples`. `runSIR()` is called from an interactive R session, where a

@@ -320,6 +320,40 @@ underlying error messages are retained and surfaced if *every* evaluation
 fails. A configuration fault fails all samples identically, and reporting only
 "all evaluations failed" hides the cause.
 
+### Only validated estimation methods are accepted
+
+`.sirSupportedEstimationMethods` currently holds `focei` alone, and
+[`.sirCheckObjective()`](../R/sir-preflight.R) rejects anything else before a
+directory is created or a single candidate is drawn.
+
+The restriction is not conservatism for its own sake. Because `sirEvalOFV()`
+scores candidates by building a FOCEi call, a fit whose objective came from a
+different likelihood approximation would have its candidates scored on one
+surface and its reference `fit$objf` taken from another. Measured on a SAEM fit
+of `theo_sd`:
+
+| Quantity | OFV |
+| --- | --- |
+| stored `fit$objf` (Gaussian quadrature) | 208.512 |
+| FOCEi reevaluation at the same estimates | 205.820 |
+| difference | **2.69** |
+
+That is a different function, not numerical noise, and it is not a constant
+that cancels: with `recenter = TRUE` the centre itself scores dOFV around
+$-2.69$, so the run would immediately "find" a better optimum manufactured
+entirely out of the offset.
+
+Adding a method to the allowlist means validating an evaluator that reproduces
+*its* objective, not adding a string.
+
+A second reason to be careful here is stochasticity. A deterministic evaluator
+returns the same OFV for the same vector, so a dOFV difference is signal. An
+MCMC or Monte-Carlo E-step does not, and the resulting noise propagates
+straight into $\exp(-\Delta\mathrm{OFV}/2)$ and hence into the weights, with
+nothing in the SIR machinery to account for it. Supporting such a method
+properly would require deciding what the noise does to the importance weights,
+which is a design question rather than a configuration one.
+
 ## Importance weights
 
 For proposal $g = N(\mu,\Sigma)$ with Cholesky factor $L$,
@@ -700,6 +734,39 @@ catalogued. The deliberate differences are:
   distribution whenever `boxcox = TRUE`, which is the default. PsN omits the
   term; including it is what makes the target the original-scale normalized
   likelihood rather than a parameterization-dependent tilt of it.
+- **Unsupported estimation methods are refused rather than warned about.**
+  PsN builds its evaluation models through `set_maxeval_zero()`
+  (`lib/model.pm`), which handles three cases: a classical method (`FO`,
+  `FOCE`, `FOCEI`, `Laplace`, or no `METHOD` at all) gets `MAXEVAL=0`; `IMP`
+  and `IMPMAP` get `EONLY=1`; and anything else -- `SAEM` included -- sets an
+  internal `$success = 0` and prints
+
+  > `METHOD in last $EST was not classical nor IMP/IMPMAP. Cannot set`
+  > `MAXEVAL=0 or EONLY=1.`
+
+  That return value is discarded by the caller
+  (`create_maxeval_zero_models_array()`), and `sir.pm` has no `METHOD` guard of
+  its own, so the run continues and builds evaluation models that still carry
+  the original method. The PsN source records the open question in a comment:
+  *"if other method return error no success / should this be changed to replace
+  last est with something classical?"*
+
+  `nlmixr2sir` aborts instead, in the preflight, before any directory is
+  created. See [Objective function evaluation](#objective-function-evaluation)
+  for the measured size of the problem.
+
+  The comparison is not exactly like for like -- PsN's classical path covers
+  several NONMEM methods where `nlmixr2sir` validates only `focei` -- so PsN
+  admits more methods overall. The difference is in what happens at the edge:
+  PsN warns and proceeds, `nlmixr2sir` refuses.
+
+- **Stochastic candidate evaluation is not supported at all.** PsN does admit
+  one stochastic evaluator, `IMP`/`IMPMAP` under `EONLY=1`, whose Monte-Carlo
+  E-step returns an OFV *estimate*. Nothing in PsN's SIR quantifies or
+  compensates for that sampling noise; the dOFVs inherit it and so do the
+  weights. `nlmixr2sir` has no equivalent path, which sidesteps the question
+  rather than answering it.
+
 - The two reporting differences described under
   [Summaries and artifacts](#summaries-and-artifacts) — `rse` as a percentage,
   and the OMEGA-only `rse_sd_scale` rule.
