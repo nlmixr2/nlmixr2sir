@@ -27,10 +27,30 @@
 #   saem            stochastic MCMC E-step, and its stored objective is a
 #                   different approximation entirely -- 208.512 by Gaussian
 #                   quadrature against 205.820 from FOCEi on theo_sd.
-#   imp/impmap/qrpem    Monte-Carlo E-step. nlmixr2 has no expectation-only
-#                   mode equivalent to PsN's EONLY=1, and an imp-family fit
-#                   carries two different -2LL values, so which one the dOFVs
-#                   are measured against is a design question, not a lookup.
+#   imp/impmap/qrpem    No way to evaluate at fixed parameters. Measured on
+#                   nlmixr2est 7.0.3, theo_sd, est = "impmap":
+#
+#                     * impmapControl() has no EONLY analogue and no
+#                       maxOuterIterations -- nothing that suppresses the
+#                       M-step the way PsN's EONLY=1 does;
+#                     * nIter = 0, the obvious candidate, SEGFAULTS (exit 139,
+#                       reproducible with plain nlmixr2(), nlmixr2sir not
+#                       loaded);
+#                     * nIter >= 1 is the wrong operation regardless. nIter
+#                       counts EM iterations and every one runs an M-step that
+#                       UPDATES the population parameters, so it does not score
+#                       the candidate -- it takes an estimation step away from
+#                       it. objf goes 117.440 (nIter=1), 116.860 (nIter=2),
+#                       converging back to the fit's own 116.829 as it
+#                       re-estimates.
+#
+#                   Separately, an imp-family fit carries two objectives that
+#                   disagree -- fit$objf 116.829 against fit$env$impObj 117.836
+#                   -- so even with a working evaluation mode, which one the
+#                   dOFVs are measured against would still need deciding.
+#
+#                   Supporting these needs an expectation-only mode upstream,
+#                   not a workaround here.
 #   npag/npb        the mixing distribution is not a normal Omega, so the
 #                   whole proposal construction does not apply.
 #   emvi/fbvi/vae   variational bounds, not the marginal likelihood.
