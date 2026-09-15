@@ -73,6 +73,19 @@ theoFitThetaCov <- .sirLazy(suppressMessages(suppressWarnings(
   )
 )))
 
+# First-order fit. Its objective is a genuinely different surface from FOCEi's
+# (127.98 against 116.80 on theo_sd), which is what makes it the fixture that
+# discriminates: an evaluator that quietly scores everything as FOCEi passes
+# every other method's preflight and fails this one.
+theoFitFo <- .sirLazy(suppressMessages(suppressWarnings(
+  nlmixr2utils::nlmixr2(
+    theoOneCmt,
+    nlmixr2data::theo_sd,
+    est = "fo",
+    control = list(print = 0L, covMethod = "")
+  )
+)))
+
 # Three-eta variant, used by the tests that need more than one omega element.
 threeEtaOneCmt <- function() {
   ini({

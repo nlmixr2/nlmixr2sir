@@ -137,7 +137,10 @@
     proposal = proposal_digest,
     estimates = .sirDigest(round(as.numeric(ps$est), 10L)),
     objf = .sirDigest(round(as.numeric(fit$objf), 8L)),
-    estMethod = as.character(fit$est %||% NA_character_),
+    # .sirFitEst(), not fit$est: on a fit whose tables carry an `est` column
+    # the latter is a per-row vector, which would land in the fingerprint and
+    # the manifest as 132 repeats of the method name.
+    estMethod = .sirFitEst(fit),
     schedule = paste0(
       paste(as.integer(schedule$nSamples), collapse = ","),
       "/",

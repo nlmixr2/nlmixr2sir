@@ -122,3 +122,50 @@ test_that("the preflight tolerance is absolute, not relative", {
     "absolute"
   )
 })
+
+test_that("the deterministic ladder is accepted, not just focei", {
+  skip_on_cran()
+  supported <- nlmixr2sir:::.sirSupportedEstimationMethods
+  for (e in c("focei", "foce", "fo", "foi", "focep", "laplace", "agq")) {
+    expect_true(e %in% supported, info = e)
+  }
+  # Stochastic and non-FOCEi-family methods stay out: their objectives are not
+  # reproduced by this evaluator, which is the whole point of the allowlist.
+  for (e in c("saem", "imp", "impmap", "qrpem", "npag", "npb", "vae", "emvi")) {
+    expect_false(e %in% supported, info = e)
+  }
+})
+
+test_that("the evaluator scores a fit with its own method, not always focei", {
+  skip_on_cran()
+  fitFo <- theoFitFo()
+  expect_equal(.sirFitEst(fitFo), "fo")
+
+  # The evaluator must reproduce the FO objective at the FO estimates.
+  r <- nlmixr2sir:::.sirCheckObjective(fitFo, workers = 1L, stencil = FALSE)
+  expect_lt(r$absDiff, 1e-4)
+
+  # Discriminating half. The premise is that FO and FOCEi are genuinely
+  # different surfaces on this model, so "reproduces its own objective" is not
+  # a claim that holds trivially. The gap is about 1.5 OFV units here (it is
+  # larger on models with more etas), which is far above the 1e-4 tolerance the
+  # reproduction is asserted at.
+  gap <- abs(fitFo$objf - theoFit()$objf)
+  expect_gt(gap, 0.5)
+  expect_lt(r$absDiff, gap / 100)
+
+  # Before the evaluator dispatched on the fit's own method, a hardcoded
+  # est = "focei" scored an FO fit 24 units low on a three-eta model -- and
+  # below FOCEi's own minimum, because the etas were being estimated rather
+  # than held at zero, which is the one thing FO must not do.
+  expect_equal(unname(r$reevaluated), unname(fitFo$objf), tolerance = 1e-6)
+})
+
+test_that("the evaluator control is built with the fit's own constructor", {
+  skip_on_cran()
+  expect_equal(nlmixr2sir:::.sirEvalMethod(theoFitFo()), "fo")
+  expect_equal(nlmixr2sir:::.sirEvalMethod(theoFit()), "focei")
+  ctl <- nlmixr2sir:::.sirEvalControl(theoFitFo())
+  expect_equal(ctl$maxOuterIterations, 0L)
+  expect_true(isTRUE(as.logical(ctl$fo)))
+})

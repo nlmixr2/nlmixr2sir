@@ -5,9 +5,10 @@
 # Estimation methods whose objective sirEvalOFV() is known to reproduce.
 #
 # sirEvalOFV() scores every candidate by building a fresh
-# nlmixr2(est = "focei", maxOuterIterations = 0) call. That reproduces a FOCEi
-# objective, so a FOCEi fit is on one fixed target and the importance weights
-# mean what they claim.
+# nlmixr2(est = "focei", maxOuterIterations = 0) call, carrying the fit's own
+# likelihood-relevant settings forward. That reproduces any method on the
+# deterministic FOCEi ladder, so such a fit is on one fixed target and the
+# importance weights mean what they claim.
 #
 # It does not reproduce a different likelihood approximation. A SAEM fit stores
 # an objective computed by Gaussian quadrature: on theo_sd that is 208.512,
@@ -15,8 +16,32 @@
 # different surface rather than numerical noise. Scoring candidates on it would
 # make every dOFV, the chi-square diagnostic, and recentring meaningless.
 #
-# Adding a method here means validating its evaluator, not just listing it.
-.sirSupportedEstimationMethods <- c("focei")
+# The deterministic conditional-estimation ladder. Every one of these runs on
+# the same FOCEi engine and differs only in settings sirEvalOFV() now carries
+# (fo, nAGQ, foce, interaction, muModel), so one evaluator reproduces all of
+# them. Verified on theo_sd: each method's objective is recovered at its own
+# fitted estimates to within the preflight tolerance.
+#
+# Deliberately absent:
+#
+#   saem            stochastic MCMC E-step, and its stored objective is a
+#                   different approximation entirely -- 208.512 by Gaussian
+#                   quadrature against 205.820 from FOCEi on theo_sd.
+#   imp/impmap/qrpem    Monte-Carlo E-step. nlmixr2 has no expectation-only
+#                   mode equivalent to PsN's EONLY=1, and an imp-family fit
+#                   carries two different -2LL values, so which one the dOFVs
+#                   are measured against is a design question, not a lookup.
+#   npag/npb        the mixing distribution is not a normal Omega, so the
+#                   whole proposal construction does not apply.
+#   emvi/fbvi/vae   variational bounds, not the marginal likelihood.
+#   nlm-family      no random effects, so there is no integral and no Omega.
+#
+# Adding a method means validating an evaluator that reproduces ITS objective,
+# not adding a string here. The preflight enforces that at run time.
+.sirSupportedEstimationMethods <- local({
+  base <- c("focei", "foce", "focep", "laplace", "agq")
+  sort(c("fo", "foi", base, paste0("m", base), paste0("i", base)))
+})
 
 .sirSupportedEstimation <- function(est) {
   supported <- .sirSupportedEstimationMethods
@@ -62,7 +87,7 @@
   checkmate::assertClass(fit, "nlmixr2FitCore")
   checkmate::assertNumber(objfTolerance, lower = 0, finite = TRUE)
 
-  .sirSupportedEstimation(fit$est)
+  .sirSupportedEstimation(.sirFitEst(fit))
 
   stored <- fit$objf
   if (!checkmate::testNumber(stored, finite = TRUE)) {
