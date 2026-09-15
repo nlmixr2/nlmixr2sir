@@ -144,6 +144,11 @@
     },
     numeric(length(quant))
   )
+  # vapply() drops to a bare vector when length(quant) == 1, and apply() below
+  # needs a dim. Restore it rather than relying on every caller passing several
+  # quantiles: the values already come back in the right (quantile, replicate)
+  # order, so this only reinstates the shape.
+  dim(curves) <- c(length(quant), nReplicate)
 
   data.frame(
     iteration = as.integer(iteration),

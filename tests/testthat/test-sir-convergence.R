@@ -541,13 +541,43 @@ test_that("the noise band keeps a candidate whose raw ratio overflowed", {
     iterations = list(list(rawResults = raw))
   )
 
-  # Several quantiles, as the plot path always passes: .sirDofvNoise()
-  # currently errors on a single one (see P6-PROGRESS.md), which is a separate
-  # defect and not what this test is about.
+  # Several quantiles, as the plot path always passes.
   band <- .sirDofvNoise(x, 1L, quant = c(0.25, 0.5, 0.75), capResampling = 2)
 
   expect_false(is.null(band))
   # Dropping the overflowed row leaves only dOFVs of 0 and -10, so the band
   # cannot reach -1500. Keeping it, the band sits on the dominant candidate.
   expect_lt(min(band$low), -100)
+})
+
+test_that("the noise band works for a single quantile", {
+  # vapply() returns a bare vector rather than a 1 x nReplicate matrix when
+  # length(quant) == 1, and apply(curves, 1L, ...) then fails with
+  # "dim(X) must have a positive length". The plot path always passes several
+  # quantiles, so this never surfaced in normal use.
+  raw <- data.frame(
+    sample_id = 1:4,
+    role = rep("sample", 4L),
+    deltaofv = c(0, -2, -4, -6),
+    importance_ratio = c(1, 2, 3, 4),
+    prob_resample = c(0.1, 0.2, 0.3, 0.4),
+    resamples = c(1L, 1L, 1L, 1L)
+  )
+  x <- structure(
+    data.frame(iter = 1L),
+    class = c("nlmixr2SIR", "data.frame"),
+    iterations = list(list(rawResults = raw))
+  )
+
+  one <- .sirDofvNoise(x, 1L, quant = 0.5, capResampling = 1)
+  expect_s3_class(one, "data.frame")
+  expect_equal(nrow(one), 1L)
+  expect_equal(one$quantile, 0.5)
+  expect_true(is.finite(one$low) && is.finite(one$high))
+  expect_lte(one$low, one$high)
+
+  # The many-quantile path must keep working, and agree in shape.
+  many <- .sirDofvNoise(x, 1L, quant = c(0.25, 0.5, 0.75), capResampling = 1)
+  expect_equal(nrow(many), 3L)
+  expect_named(one, names(many))
 })
