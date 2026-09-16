@@ -45,6 +45,7 @@ vignettes/*.pdf
 docs/*
 !docs/sir-technical-reference.md
 !docs/nlmixr2sir-critical-review.md
+!docs/nlmixr2sir-follow-up-critical-review.md
 
 # translation temp files
 po/*~
