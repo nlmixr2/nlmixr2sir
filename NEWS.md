@@ -108,7 +108,27 @@
   warning to `runSIR()` when it is emitted by `plot(type = "convergence")`.
   Both corrected.
 
-* **The restriction to `focei` fits is now documented as a deliberate
+* **`runSIR()` now accepts the deterministic estimation ladder, not only
+  `focei`**: `fo`, `foi`, `foce`, `focei`, `focep`, `laplace`, `agq`, and the
+  mu-referencing `m...`/`i...` variants of each. Candidates are scored by
+  re-evaluating the fit's own method at fixed population parameters, so the
+  candidate surface and the `fit$objf` reference are the same function. Each
+  method was verified by re-evaluating a real fit at its own estimates rather
+  than by being listed.
+
+* **The evaluator now carries the fit's whole control object**, overriding only
+  the evaluation fields (`maxOuterIterations`, `calcTables`, `covMethod`,
+  `compress`, `print`). It previously rebuilt the control from a hand-picked
+  list of likelihood-relevant settings, which failed open: `foceiControl()` has
+  150 arguments, and one that was not on the list was silently dropped.
+  `agqLow` and `agqHi` were lost that way, so an AGQ fit with non-default
+  integration bounds agreed with its own objective at the centre to 1e-08 but
+  differed by about 6490 OFV units at an off-centre candidate -- a difference
+  that enters the importance weight as `exp(-dOFV/2)`. Neither the centre check
+  nor the stencil can detect this: the stencil perturbs by a thousandth of each
+  estimate, and integration bounds only bite far from the mode.
+
+* **The restriction that remains is documented as a deliberate
   difference from PsN**, with the measurement behind it: a SAEM fit of
   `theo_sd` stores an objective of 208.512 against 205.820 from FOCEi
   re-evaluation at the same estimates, and that 2.69-unit gap does not cancel
@@ -228,7 +248,7 @@
   fresh FOCEi evaluation, which is not guaranteed to be the surface that
   produced `fit$objf`. The tolerance is `runSIRControl(objfTolerance =)`.
 
-* `runSIR()` now accepts only `focei` fits, and says so before doing any work.
+* `runSIR()` rejects fits whose objective it cannot reproduce, and says so before doing any work.
   A SAEM fit's objective comes from Gaussian quadrature: on `theo_sd` it is
   208.512 against 205.820 from a FOCEi reevaluation, a 2.69 unit gap. That is a
   different likelihood, not numerical noise, and with `recenter = TRUE` the run

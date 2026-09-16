@@ -307,10 +307,33 @@ letting the rank check report the final count and advise raising `nResample`.
 ## Objective function evaluation
 
 [`sirEvalOFV()`](../R/sir-eval.R) sets each sampled vector into the model with
-`rxode2::ini()` and evaluates the objective with
-`foceiControl(maxOuterIterations = 0L)`, so no estimation occurs — the
-population parameters are fixed at the proposed values and the inner problem
-is solved. Evaluation is parallelised across `workers`, each worker using
+`rxode2::ini()` and re-evaluates **the fit's own estimation method** with
+`maxOuterIterations = 0`, so no estimation occurs — the population parameters
+are fixed at the proposed values and the inner problem is solved.
+
+Both halves of that matter. The method is taken from the fit rather than
+hard-coded: an `fo` fit evaluated as `focei` scored 103.870 against its own
+127.982, *below* FOCEi's own minimum, because the etas were being estimated
+rather than held at zero. And the **whole** control object comes from the fit,
+with only the evaluation fields overridden
+(`maxOuterIterations`, `calcTables`, `covMethod`, `compress`, `print`).
+
+That second point replaced an earlier design that rebuilt the control from a
+hand-picked list of likelihood-relevant fields. `foceiControl()` has 150
+arguments, so such a list fails *open*: a setting nobody listed is silently
+dropped and the candidate is scored on a different surface. `agqLow`/`agqHi`
+were lost exactly that way — an AGQ fit with `agqLow = -100` was re-evaluated
+with the default `-Inf`, agreeing at the centre to 1e-08 but differing by
+about 6490 OFV units at `tka = -20`, which enters the weight as
+$\exp(-\Delta\mathrm{OFV}/2)$. Copying the control and overriding only the
+evaluation fields inverts the failure mode: an unrecognised setting is
+preserved rather than lost.
+
+Note what this means for the preflight. The centre check and the stencil
+cannot catch a defect of that shape — the stencil perturbs by a thousandth of
+each estimate, and integration bounds only bite far from the mode. The
+protection against it is structural (carry everything) plus the regression
+tests that evaluate off-centre candidates, not the preflight. Evaluation is parallelised across `workers`, each worker using
 `rxThreads` rxode2 threads; whenever `workers > 1`, `workers * rxThreads` must
 not exceed the core count, since each worker is a separate process with its
 own thread pool.
@@ -322,15 +345,27 @@ fails. A configuration fault fails all samples identically, and reporting only
 
 ### Only validated estimation methods are accepted
 
-`.sirSupportedEstimationMethods` currently holds `focei` alone, and
+`.sirSupportedEstimationMethods` holds the deterministic conditional-estimation
+ladder — `fo`, `foi`, `foce`, `focei`, `focep`, `laplace`, `agq`, and the
+`m…`/`i…` mu-referencing variants of each — and
 [`.sirCheckObjective()`](../R/sir-preflight.R) rejects anything else before a
 directory is created or a single candidate is drawn.
 
-The restriction is not conservatism for its own sake. Because `sirEvalOFV()`
-scores candidates by building a FOCEi call, a fit whose objective came from a
-different likelihood approximation would have its candidates scored on one
-surface and its reference `fit$objf` taken from another. Measured on a SAEM fit
-of `theo_sd`:
+All of these run on the same FOCEi engine and differ only in settings the
+evaluator now carries, so one evaluator reproduces each one's own objective.
+Verified on `theo_sd`, re-evaluating each fit at its own estimates:
+
+| Method | Stored | Re-evaluated | Absolute difference |
+| --- | --- | --- | --- |
+| `focei`/`foce`/`focep`/`laplace` | 116.8042 | 116.8042 | ~4e-06 |
+| `agq` | 118.4833 | 118.4833 | 2.8e-07 |
+| `mfocei`/`ifocei` | 116.8569 | 116.8569 | 1.9e-06 |
+| `fo`/`foi` | 127.9822 | 127.9822 | ~1e-13 |
+
+The restriction that remains is not conservatism for its own sake. A fit whose
+objective came from a different likelihood approximation would have its
+candidates scored on one surface and its reference `fit$objf` taken from
+another. Measured on a SAEM fit of `theo_sd`:
 
 | Quantity | OFV |
 | --- | --- |
@@ -756,9 +791,9 @@ catalogued. The deliberate differences are:
   for the measured size of the problem.
 
   The comparison is not exactly like for like -- PsN's classical path covers
-  several NONMEM methods where `nlmixr2sir` validates only `focei` -- so PsN
-  admits more methods overall. The difference is in what happens at the edge:
-  PsN warns and proceeds, `nlmixr2sir` refuses.
+  several NONMEM methods, and PsN additionally admits the IMP family, which
+  `nlmixr2sir` cannot evaluate at fixed parameters at all. The difference is in
+  what happens at the edge: PsN warns and proceeds, `nlmixr2sir` refuses.
 
 - **Stochastic candidate evaluation is not supported at all.** PsN does admit
   one stochastic evaluator, `IMP`/`IMPMAP` under `EONLY=1`, whose Monte-Carlo

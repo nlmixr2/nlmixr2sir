@@ -26,51 +26,24 @@
 #' @return Named numeric vector of length `nrow(paramSamples)`.  Entries are
 #'   `NA_real_` for rows that produced an error during evaluation.
 #' @noRd
-# Fields of the fitted control that define or materially affect the value of
-# the objective, as opposed to how it was optimised. Optimisation-only settings
-# need not be carried when maxOuterIterations = 0, but these do: they change
-# the number the evaluator returns.
+# Evaluation-only overrides: what the call DOES, as opposed to what the
+# objective MEANS. These are the only fields the evaluator is entitled to
+# change, and everything else is taken from the fit untouched.
 #
-#   interaction       FOCEi versus FOCE
-#   fo                first-order: expand at eta = 0 rather than at each
-#                     subject's conditional mode. This one is easy to miss --
-#                     an `fo` fit shows the same interaction/nAGQ/foce as a
-#                     `foce` fit and differs only here, yet scores 127.98
-#                     against 116.80 on theo_sd. Omitting it would have scored
-#                     every candidate on the wrong surface silently.
-#   nAGQ              quadrature nodes: 0 is FOCEi, 1 is Laplace, >= 2 is AGQ
-#   foce              residual-variance convention ("nonmem" vs "foce+")
-#   muModel           mu-referencing regression variant (the m.../i... methods)
-#   addProp           how additive and proportional error combine
-#   adjLik            likelihood constant adjustment
-#   badSolveObjfAdj   the penalty applied to a failed solve -- candidate
-#                     dependent, so a mismatch changes the shape of the target
-#   rxControl         ODE solver method and tolerances
-#   sumProd, optExpression, literalFix, sigdig
-#                     expression handling and derived tolerances
-#
-# Carrying these is what lets one FOCEi-family evaluator reproduce the whole
-# deterministic ladder: every one of fo/foi/foce/focei/focep/laplace/agq runs
-# on this engine and differs only in these settings. The preflight is still the
-# gate -- it re-evaluates at the fitted centre and aborts on a mismatch -- so a
-# field missed here shows up as a refused run rather than a wrong answer.
-.sirLikelihoodControlFields <- c(
-  "interaction", "fo", "nAGQ", "foce", "muModel",
-  "addProp", "adjLik", "badSolveObjfAdj", "rxControl",
-  "sumProd", "optExpression", "literalFix", "sigdig"
+# maxOuterIterations = 0   fix the population parameters; this is the whole
+#                          point of the evaluator
+# calcTables, compress     output shaping, not likelihood
+# covMethod = ""           a covariance step per candidate would be enormous
+#                          waste and is never read
+# print = 0                quiet
+.sirEvalOverrides <- list(
+  maxOuterIterations = 0L,
+  calcTables = FALSE,
+  covMethod = "",
+  compress = FALSE,
+  print = 0L
 )
 
-# Build the fixed-parameter evaluator's control by carrying the fitted model's
-# likelihood-relevant settings forward, rather than accepting foceiControl()'s
-# defaults for all of them. A fresh default control is a different objective
-# whenever the fit used anything but the defaults.
-# The method a candidate is scored with, and the constructor for its control.
-#
-# Carrying the control fields is not on its own enough: the `est` string itself
-# selects the objective. An `fo` fit evaluated as `est = "focei"` scored
-# 103.870 against its own 127.982 -- 24 units out, and *below* FOCEi's own
-# minimum, because the etas were being estimated rather than held at zero.
-# Evaluating it as `est = "fo"` reproduces 127.98223 exactly.
 .sirFitEst <- function(fit) {
   # fit$env$est, not fit$est. A fitted object is data-frame-like, so `$est`
   # can resolve to an output-table COLUMN instead of the scalar method name:
@@ -103,29 +76,46 @@
 .sirEvalControl <- function(fit) {
   est <- .sirEvalMethod(fit)
   ctlFun <- .sirEvalControlFun(est)
-  base <- fit$control
-  args <- if (is.list(base)) {
-    keep <- intersect(.sirLikelihoodControlFields, names(base))
-    as.list(base)[keep]
-  } else {
-    list()
+  ctl <- fit$control
+  if (!is.list(ctl) || length(ctl) == 0L) {
+    ctl <- NULL
   }
-  # A thin wrapper such as foceControl() or laplaceControl() forces the args
-  # that define its rung and may not accept every FOCEi field by name, so drop
-  # anything it cannot take unless it forwards through `...`.
-  fml <- names(formals(ctlFun))
-  if (!("..." %in% fml)) {
-    args <- args[intersect(names(args), fml)]
+  # Everything else comes from the fit's OWN control object, unchanged.
+  #
+  # This used to rebuild the control from a hand-picked allowlist of
+  # "likelihood-relevant" fields. foceiControl() has 150 arguments, so that
+  # list failed OPEN: a field nobody thought of was silently dropped and the
+  # candidate scored on a different surface. agqLow/agqHi were dropped exactly
+  # that way -- an AGQ fit with agqLow = -100 was reevaluated with the default
+  # -Inf, which agrees at the centre to 1e-08 (so the preflight passed) and is
+  # 6490 OFV units out at tka = -20. That enters the weight as
+  # exp(-dOFV/2). The stencil cannot catch it either: it perturbs by a
+  # thousandth of each estimate, and integration bounds only bite far away.
+  #
+  # Copying the fit's control and overriding only the evaluation fields
+  # inverts that: an unrecognised setting is PRESERVED rather than lost, so
+  # the failure mode of being wrong about this list is a slower evaluation,
+  # not a wrong answer.
+  # The override VALUES have to be normalised the way the constructor would
+  # normalise them, not assigned raw: foceiControl() turns covMethod = "" into
+  # integer 0 and print = 0 into NULL, so raw assignment would leave the
+  # control in a shape the constructor never produces. Build one reference
+  # control and copy its versions of exactly those fields.
+  ref <- tryCatch(do.call(ctlFun, .sirEvalOverrides), error = function(e) NULL)
+
+  if (!is.null(ctl)) {
+    src <- if (is.null(ref)) .sirEvalOverrides else ref
+    for (nm in names(.sirEvalOverrides)) {
+      # ctl[nm] <- list(v), not ctl[[nm]] <- v: the latter DELETES the element
+      # when v is NULL, and the normalised `print` is NULL.
+      ctl[nm] <- list(src[[nm]])
+    }
+    return(ctl)
   }
-  # Evaluation-only overrides. These control what the call does, not what the
-  # objective means, so they are always ours.
-  args$calcTables <- FALSE
-  args$covMethod <- ""
-  args$compress <- FALSE
-  args$maxOuterIterations <- 0L
-  args$print <- 0L
+
+  # No usable control on the fit: fall back to the method's own defaults.
   tryCatch(
-    do.call(ctlFun, args),
+    if (is.null(ref)) stop("could not build a default control") else ref,
     error = function(e) {
       cli::cli_abort(c(
         "Could not reconstruct the fit's objective settings for evaluation.",

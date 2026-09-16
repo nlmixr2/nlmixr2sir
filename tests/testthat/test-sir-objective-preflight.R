@@ -123,16 +123,142 @@ test_that("the preflight tolerance is absolute, not relative", {
   )
 })
 
-test_that("the deterministic ladder is accepted, not just focei", {
-  skip_on_cran()
+# Fit `m` with `est` and check the evaluator reproduces ITS objective, both at
+# the fitted centre and at a candidate far from it.
+#
+# The off-centre half is the part that matters. Agreement at the centre is
+# necessary but weak: an AGQ fit whose integration bounds were dropped agreed
+# there to 1e-08 and was 6490 OFV units out at tka = -20, because bounds only
+# bite far from the mode. A test that only reproduces the centre certifies
+# nothing about the surface candidates are actually drawn from.
+.sirExpectReproduces <- function(fit, est, offParam = "tka", offValue = -20) {
+  testthat::expect_equal(nlmixr2sir:::.sirFitEst(fit), est)
+
+  r <- nlmixr2sir:::.sirCheckObjective(fit, workers = 1L, stencil = FALSE)
+  testthat::expect_lt(r$absDiff, 1e-4)
+
+  ps <- nlmixr2sir:::.sirParamSpace(fit)
+  mu <- nlmixr2sir:::.sirProposalMu(fit, ps)
+  off <- mu
+  off[[offParam]] <- offValue
+  mat <- matrix(off, nrow = 1L, dimnames = list(NULL, names(off)))
+  got <- unname(nlmixr2sir:::sirEvalOFV(fit, mat, workers = 1L)[[1L]])
+
+  # Reference: the fit's own control, with only the evaluation fields changed.
+  ctl <- fit$control
+  ctl$maxOuterIterations <- 0L
+  ctl$calcTables <- FALSE
+  ctl$covMethod <- ""
+  ctl$compress <- FALSE
+  ctl$print <- 0L
+  want <- suppressMessages(suppressWarnings(nlmixr2est::nlmixr2(
+    rxode2::ini(fit$ui, off), nlmixr2est::getData(fit),
+    est = est, control = ctl
+  )))$objf
+
+  testthat::expect_true(is.finite(got))
+  testthat::expect_equal(got, unname(want), tolerance = 1e-6)
+  invisible(got)
+}
+
+test_that("unsupported methods are excluded from the allowlist", {
   supported <- nlmixr2sir:::.sirSupportedEstimationMethods
-  for (e in c("focei", "foce", "fo", "foi", "focep", "laplace", "agq")) {
-    expect_true(e %in% supported, info = e)
-  }
   # Stochastic and non-FOCEi-family methods stay out: their objectives are not
   # reproduced by this evaluator, which is the whole point of the allowlist.
   for (e in c("saem", "imp", "impmap", "qrpem", "npag", "npb", "vae", "emvi")) {
     expect_false(e %in% supported, info = e)
+  }
+})
+
+test_that("the evaluator reproduces each deterministic method's objective", {
+  skip_on_cran()
+  # Each rung of the ladder, fitted and then put through the real evaluator --
+  # not merely asserted to be present in a character vector.
+  for (e in c("focei", "foce", "fo", "foi", "focep", "laplace", "agq")) {
+    expect_true(e %in% nlmixr2sir:::.sirSupportedEstimationMethods, info = e)
+    fit <- suppressMessages(suppressWarnings(nlmixr2est::nlmixr2(
+      theoOneCmt, nlmixr2data::theo_sd, est = e,
+      control = list(print = 0L, covMethod = "", calcTables = FALSE)
+    )))
+    .sirExpectReproduces(fit, e)
+  }
+})
+
+test_that("the evaluator reproduces the muModel variants", {
+  skip_on_cran()
+  for (e in c("mfocei", "ifocei")) {
+    expect_true(e %in% nlmixr2sir:::.sirSupportedEstimationMethods, info = e)
+    fit <- suppressMessages(suppressWarnings(nlmixr2est::nlmixr2(
+      theoOneCmt, nlmixr2data::theo_sd, est = e,
+      control = list(print = 0L, covMethod = "", calcTables = FALSE)
+    )))
+    .sirExpectReproduces(fit, e)
+  }
+})
+
+test_that("non-default AGQ integration bounds reach the evaluator", {
+  skip_on_cran()
+  # The regression guard for the dropped-bounds defect. agqLow only changes the
+  # objective away from the mode, so this asserts both that the setting arrives
+  # AND that it makes a difference -- otherwise the test would pass against an
+  # evaluator that ignored it.
+  fit <- suppressMessages(suppressWarnings(nlmixr2est::nlmixr2(
+    theoOneCmt, nlmixr2data::theo_sd, est = "agq",
+    control = nlmixr2est::agqControl(
+      nAGQ = 2, agqLow = -100, agqHi = Inf,
+      print = 0L, covMethod = "", calcTables = FALSE
+    )
+  )))
+  expect_equal(fit$control$agqLow, -100)
+
+  ctl <- nlmixr2sir:::.sirEvalControl(fit)
+  expect_equal(ctl$agqLow, -100)
+  expect_equal(ctl$agqHi, Inf)
+  expect_equal(ctl$maxOuterIterations, 0L)
+
+  .sirExpectReproduces(fit, "agq")
+
+  # Discriminating: the default bounds give a materially different answer at
+  # the same off-centre point, so carrying them is not a no-op.
+  ps <- nlmixr2sir:::.sirParamSpace(fit)
+  mu <- nlmixr2sir:::.sirProposalMu(fit, ps)
+  off <- mu
+  off[["tka"]] <- -20
+  wrong <- ctl
+  wrong$agqLow <- -Inf
+  got <- suppressMessages(suppressWarnings(nlmixr2est::nlmixr2(
+    rxode2::ini(fit$ui, off), nlmixr2data::theo_sd, est = "agq", control = wrong
+  )))$objf
+  mat <- matrix(off, nrow = 1L, dimnames = list(NULL, names(off)))
+  right <- unname(nlmixr2sir:::sirEvalOFV(fit, mat, workers = 1L)[[1L]])
+  expect_gt(abs(got - right), 100)
+})
+
+test_that("the evaluator changes only the evaluation fields of the control", {
+  skip_on_cran()
+  # The invariant that replaced the hand-picked allowlist: everything except
+  # the documented overrides is carried through untouched, so a setting nobody
+  # anticipated cannot be silently dropped.
+  fit <- theoFit()
+  ctl <- nlmixr2sir:::.sirEvalControl(fit)
+  overrides <- names(nlmixr2sir:::.sirEvalOverrides)
+  shared <- setdiff(intersect(names(fit$control), names(ctl)), overrides)
+  expect_gt(length(shared), 100)
+  for (nm in shared) {
+    expect_equal(ctl[[nm]], fit$control[[nm]], info = nm)
+  }
+  # The overrides are asserted by intent rather than by literal value, because
+  # they are stored in the form foceiControl() normalises them to, not the form
+  # they are written in: covMethod "" becomes integer 0 and print 0 becomes
+  # NULL. Comparing against the raw list would pin the wrong thing.
+  expect_equal(ctl$maxOuterIterations, 0L)   # no estimation
+  expect_false(isTRUE(ctl$calcTables))       # no output tables
+  expect_false(isTRUE(ctl$compress))
+  expect_equal(as.integer(ctl$covMethod), 0L) # no covariance step
+  expect_true(is.null(ctl$print) || isTRUE(ctl$print == 0)) # quiet
+  # Every override key is still present -- assigning NULL must not delete one.
+  for (nm in overrides) {
+    expect_true(nm %in% names(ctl), info = nm)
   }
 })
 

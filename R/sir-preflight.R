@@ -4,9 +4,9 @@
 
 # Estimation methods whose objective sirEvalOFV() is known to reproduce.
 #
-# sirEvalOFV() scores every candidate by building a fresh
-# nlmixr2(est = "focei", maxOuterIterations = 0) call, carrying the fit's own
-# likelihood-relevant settings forward. That reproduces any method on the
+# sirEvalOFV() scores every candidate by re-evaluating the fit's OWN method
+# with maxOuterIterations = 0, carrying the fit's own control object forward
+# with only the evaluation fields overridden. That reproduces any method on the
 # deterministic FOCEi ladder, so such a fit is on one fixed target and the
 # importance weights mean what they claim.
 #
@@ -74,9 +74,9 @@
   if (!est %in% supported) {
     cli::cli_abort(c(
       "SIR does not support {.val {est}} fits.",
-      "x" = "Candidate objectives are evaluated with {.code est = \"focei\"}, which does not reproduce the {.val {est}} objective.",
+      "x" = "Candidates are scored by re-evaluating the fit's own method at fixed parameters, and {.val {est}} cannot be evaluated that way.",
       "i" = "Supported: {.val {supported}}.",
-      "i" = "Refit with {.code est = \"focei\"} to run SIR on this model."
+      "i" = "Refit with a deterministic method such as {.code est = \"focei\"} to run SIR on this model."
     ))
   }
   invisible(est)
