@@ -146,7 +146,7 @@ blockFit <- .sirLazy(suppressMessages(suppressWarnings(
 iter1 <- .sirLazy(local({
   fit <- theoFit()
   set.seed(42)
-  suppressMessages(
+  .sirQuiet(
     sirRunIteration(
       fit,
       mu = .sirProposalMu(fit),

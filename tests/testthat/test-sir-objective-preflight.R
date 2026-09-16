@@ -59,7 +59,7 @@ test_that("runSIR runs the objective preflight before sampling", {
   fit <- theoFit()
   dir <- withr::local_tempdir()
   expect_error(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       fit,
       nSamples = 16L,
       nResample = 8L,

@@ -16,8 +16,45 @@
 
 # Documented warning thresholds. Deliberately loose: they are meant to catch a
 # sample that is degenerate rather than merely uneven.
+#
+# The two ESS thresholds measure DIFFERENT things and have DIFFERENT remedies,
+# which is why they are separate warnings rather than one.
+#
+# .sirEssWarn is an absolute count, and it is the one that bounds what the
+# result can support. A retained distribution resting on ~K effectively
+# independent points cannot locate its own 2.5th and 97.5th percentiles more
+# finely than K draws allow, however many rows `nResample` produced. Absolute
+# ESS grows roughly in PROPORTION to the number of samples, so more samples is
+# the right remedy here. (Simulated, q = N(0,1) targeting N(1,1): mean ESS of
+# 8.2, 22.5, 80.2, 379 and 1842 at n = 16, 50, 200, 1000 and 5000.)
+#
+# .sirEssFractionWarn is an efficiency ratio, and it is a property of the
+# PROPOSAL rather than of the sample size. Asymptotically ESS/n converges to a
+# constant fixed by the proposal-target mismatch -- exp(-mu^2) for the normal
+# case above -- so drawing more samples does not improve it, and telling a user
+# to raise `nSamples` in response to a low ratio is bad advice.
+#
+# Worse, the ESTIMATE of that ratio is optimistically biased at small n, and
+# the bias is largest exactly when the proposal is worst. Same simulation,
+# against a true ratio of 0.3679:
+#
+#     n =   16   ESS/n = 0.514   (+0.146)
+#     n =   50           0.450   (+0.082)
+#     n =  200           0.401   (+0.033)
+#     n = 1000           0.379   (+0.012)
+#     n = 5000           0.369   (+0.001)
+#
+# So a small run reports a flattering efficiency, and raising `nSamples` makes
+# the reported ratio FALL as the estimate becomes honest. A user who reads that
+# as a regression and responds by drawing more samples again is chasing an
+# artefact. The warning says so rather than leaving them to work it out.
+.sirEssWarn <- 100
 .sirEssFractionWarn <- 0.10
 .sirMaxWeightWarn <- 0.50
+
+# Below this many samples the efficiency estimate is optimistically biased
+# enough to be worth flagging; see the table above.
+.sirEssFractionReliableN <- 200
 
 #' Degeneracy summaries for a set of normalized importance weights
 #'
@@ -67,41 +104,80 @@
   )
 }
 
-# Warn when the retained sample rests on too little of the proposal. Both
-# thresholds are reported so the user can judge rather than just be alarmed.
-.sirWarnWeightDegeneracy <- function(diag, iterNum) {
+# Warn when the retained sample rests on too little of the proposal.
+#
+# Three separate conditions, each with its own remedy, because conflating them
+# produced advice that was wrong for two of the three. Every threshold is
+# quoted in the message so the user can judge rather than just be alarmed.
+.sirWarnWeightDegeneracy <- function(diag, iterNum, nSamples = NULL) {
   if (!is.finite(diag$ess)) {
     return(invisible(FALSE))
   }
+  ess <- diag$ess
   essFrac <- diag$essFraction
   maxW <- diag$maxWeight
-  bad_ess <- is.finite(essFrac) && essFrac < .sirEssFractionWarn
+
+  # Bound without the leading dot: cli reads {.name} as a style, not a value.
+  essWarnAt <- .sirEssWarn                    # nolint: object_usage_linter.
+  fracWarnAt <- .sirEssFractionWarn           # nolint: object_usage_linter.
+  maxWarnAt <- .sirMaxWeightWarn              # nolint: object_usage_linter.
+
+  bad_ess <- is.finite(ess) && ess < .sirEssWarn
+  bad_frac <- is.finite(essFrac) && essFrac < .sirEssFractionWarn
   bad_max <- is.finite(maxW) && maxW > .sirMaxWeightWarn
-  if (!bad_ess && !bad_max) {
+  if (!bad_ess && !bad_frac && !bad_max) {
     return(invisible(FALSE))
   }
+
+  n <- if (is.null(nSamples) || !is.finite(nSamples)) NA_integer_ else as.integer(nSamples)
+  small_n <- !is.na(n) && n < .sirEssFractionReliableN
 
   msg <- c(
     "Iteration {iterNum}: the importance weights are concentrated on few samples."
   )
+
+  # 1. Absolute effective sample size: what the result can actually support.
   if (bad_ess) {
     msg <- c(msg, "x" = paste0(
-      "Effective sample size {round(diag$ess, 1)} is ",
-      "{round(100 * essFrac, 1)}% of the usable samples ",
-      "(warns below {round(100 * .sirEssFractionWarn)}%)."
+      "Effective sample size is {round(ess, 1)} ",
+      "(warns below {essWarnAt}): the retained distribution rests on about ",
+      "that many independent points, whatever {.arg nResample} says."
+    ))
+    msg <- c(msg, "i" = paste0(
+      "Percentile intervals from so few effective draws are dominated by ",
+      "resampling noise. Effective sample size grows roughly in proportion to ",
+      "{.arg nSamples}, so more samples raise it."
     ))
   }
+
+  # 2. Efficiency: a property of the proposal, NOT of the sample size.
+  if (bad_frac) {
+    msg <- c(msg, "x" = paste0(
+      "Proposal efficiency is {round(100 * essFrac, 1)}% ",
+      "(warns below {round(100 * fracWarnAt)}%): most draws carry ",
+      "negligible weight."
+    ))
+    msg <- c(msg, "i" = paste0(
+      "This ratio is a property of the proposal, not of the sample size. ",
+      "Raising {.arg nSamples} raises the effective sample size but leaves the ",
+      "ratio where it is; widen the proposal with the inflation controls instead."
+    ))
+    if (small_n) {
+      msg <- c(msg, "!" = paste0(
+        "Measured on {n} sample{?s}, where this ratio is optimistically biased ",
+        "-- the true efficiency is likely lower than the figure above."
+      ))
+    }
+  }
+
+  # 3. A single dominating candidate.
   if (bad_max) {
     msg <- c(msg, "x" = paste0(
       "One sample carries {round(100 * maxW, 1)}% of the weight ",
-      "(warns above {round(100 * .sirMaxWeightWarn)}%)."
+      "(warns above {round(100 * maxWarnAt)}%)."
     ))
   }
-  msg <- c(
-    msg,
-    "i" = "The retained sample rests on less information than its size suggests.",
-    "i" = "Widen the proposal with the inflation controls, or raise {.arg nSamples}."
-  )
+
   cli::cli_warn(msg)
   invisible(TRUE)
 }

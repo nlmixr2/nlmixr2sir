@@ -17,7 +17,7 @@ test_that("a non-empty unowned directory is refused, not claimed", {
   writeLines("precious", sentinel)
 
   err <- tryCatch(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
       control = runSIRControl(recover = TRUE, workers = 1L)
     )),
@@ -39,12 +39,12 @@ test_that("the two-call sequence cannot destroy an unrelated file", {
   sentinel <- file.path(dir, "sentinel.txt")
   writeLines("precious", sentinel)
 
-  try(suppressMessages(runSIR(
+  try(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = TRUE, workers = 1L)
   )), silent = TRUE)
 
-  try(suppressMessages(runSIR(
+  try(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = FALSE, workers = 1L)
   )), silent = TRUE)
@@ -57,7 +57,7 @@ test_that("an empty directory may be claimed", {
   skip_on_cran()
   dir <- withr::local_tempdir()
   expect_length(list.files(dir, all.files = TRUE, no.. = TRUE), 0L)
-  expect_no_error(suppressMessages(runSIR(
+  expect_no_error(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = TRUE, workers = 1L)
   )))

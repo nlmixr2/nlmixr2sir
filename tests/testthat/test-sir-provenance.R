@@ -76,7 +76,7 @@ test_that("recovery refuses a state file from a different run", {
   fit <- theoFit()
   dir <- withr::local_tempdir()
   set.seed(31)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     fit, nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = FALSE, workers = 1L)
   ))
@@ -84,7 +84,7 @@ test_that("recovery refuses a state file from a different run", {
   # Same directory, different schedule: the stored result does not belong to
   # this request and must not be handed back.
   err <- tryCatch(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       fit, nSamples = c(16L, 16L), nResample = c(8L, 8L), directory = dir,
       control = runSIRControl(recover = TRUE, workers = 1L)
     )),
@@ -97,13 +97,13 @@ test_that("recovery refuses a state file from a different model", {
   skip_on_cran()
   dir <- withr::local_tempdir()
   set.seed(32)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = FALSE, workers = 1L)
   ))
 
   err <- tryCatch(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       blockFit(), nSamples = 16L, nResample = 8L, directory = dir,
       control = runSIRControl(recover = TRUE, workers = 1L)
     )),
@@ -119,7 +119,7 @@ test_that("an unowned non-empty directory is never deleted", {
   writeLines("do not delete me", sentinel)
 
   err <- tryCatch(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
       control = runSIRControl(recover = FALSE, workers = 1L)
     )),
@@ -134,14 +134,14 @@ test_that("a directory nlmixr2sir created carries an ownership marker", {
   skip_on_cran()
   dir <- withr::local_tempdir()
   set.seed(33)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = FALSE, workers = 1L)
   ))
   expect_true(.sirDirIsOwned(dir))
 
   # A fresh run over its own directory is fine.
-  expect_no_error(suppressMessages(runSIR(
+  expect_no_error(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = FALSE, workers = 1L)
   )))
@@ -154,7 +154,7 @@ test_that("saveFiles = FALSE writes nothing at all", {
   expect_length(before, 0L)
 
   set.seed(34)
-  res <- suppressMessages(runSIR(
+  res <- .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(saveFiles = FALSE, workers = 1L)
   ))
@@ -168,7 +168,7 @@ test_that("saveFiles = FALSE writes nothing at all", {
 test_that("saveFiles = FALSE still produces a usable result and diagnostics", {
   skip_on_cran()
   set.seed(35)
-  res <- suppressMessages(runSIR(
+  res <- .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L,
     control = runSIRControl(saveFiles = FALSE, workers = 1L)
   ))
@@ -180,7 +180,7 @@ test_that("saveFiles = FALSE still produces a usable result and diagnostics", {
 test_that("saveFiles = FALSE cannot be combined with addIterations", {
   skip_on_cran()
   expect_error(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       theoFit(), nSamples = 16L, nResample = 8L,
       control = runSIRControl(saveFiles = FALSE, addIterations = TRUE, workers = 1L)
     )),
@@ -193,7 +193,7 @@ test_that("a state file from an older schema version is refused", {
   fit <- theoFit()
   dir <- withr::local_tempdir()
   set.seed(36)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     fit, nSamples = 16L, nResample = 8L, directory = dir,
     control = runSIRControl(recover = FALSE, workers = 1L)
   ))
@@ -203,7 +203,7 @@ test_that("a state file from an older schema version is refused", {
   nlmixr2utils::writeRunState(dir, st, .sirStateSchema())
 
   err <- tryCatch(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       fit, nSamples = 16L, nResample = 8L, directory = dir,
       control = runSIRControl(recover = TRUE, workers = 1L)
     )),

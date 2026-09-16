@@ -177,10 +177,23 @@ sample do not automatically have nominal frequentist coverage. The conditions
 are set out in the [technical reference](docs/sir-technical-reference.md).
 
 Each iteration also reports importance-weight diagnostics -- effective sample
-size, its fraction of the usable samples, the largest single weight, and
-perplexity. `runSIR()` warns when the effective sample size falls below 10% of
-the usable samples or one candidate carries more than half the weight: the
-retained sample then rests on less information than its size suggests.
+size (ESS), its fraction of the usable samples, the largest single weight, and
+perplexity. `runSIR()` warns on three separate conditions, because they mean
+different things and have different remedies:
+
+- **ESS below 100.** The retained distribution rests on about that many
+  effectively independent points, whatever `nResample` says, and percentile
+  intervals drawn from so few are dominated by resampling noise. ESS grows
+  roughly in proportion to `nSamples`, so more samples genuinely help here.
+- **Efficiency (ESS/n) below 10%.** Most draws carry negligible weight. This
+  ratio is a property of the *proposal*, not of the sample size: asymptotically
+  it converges to a constant fixed by the proposal-target mismatch, so drawing
+  more samples raises ESS but leaves the ratio where it is. Widen the proposal
+  with the inflation controls instead. Note too that this ratio is
+  *optimistically biased* when estimated from few samples, so a small run
+  flatters its own proposal and the figure can fall as `nSamples` rises simply
+  because the estimate is becoming honest.
+- **One candidate carrying more than half the weight.**
 
 `type = "rsecor"` annotates each parameter's RSE with the confidence-interval
 asymmetry ratio `(high - median) / (median - low)`. A symmetric

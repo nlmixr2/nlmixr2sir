@@ -48,7 +48,10 @@ test_that("weight diagnostics ignore zero-probability candidates", {
 
 test_that("the iteration summary carries the weight diagnostics", {
   skip_on_cran()
-  s <- iter1()$iterSummary
+  # iter1() is a 16-sample fixture, so it legitimately trips the absolute-ESS
+  # warning. That warning is asserted directly in the tests above; here the
+  # subject is only which columns the summary carries.
+  s <- .sirQuiet(iter1())$iterSummary
   for (nm in c("ess", "essFraction", "maxWeight", "perplexity", "nNonNegligible")) {
     expect_true(nm %in% names(s), info = nm)
   }
@@ -65,6 +68,8 @@ test_that("a degenerate importance sample warns", {
   # carry the weight, which is exactly the situation the diagnostics exist to
   # surface.
   expect_warning(
+    # suppressMessages(), NOT .sirQuiet(): this test's subject IS the
+    # degeneracy warning, so muffling it would make the assertion vacuous.
     suppressMessages(sirRunIteration(
       fit,
       mu = .sirProposalMu(fit),
@@ -141,4 +146,76 @@ test_that("the convergence plot passes the run's controls to the noise band", {
   # the algorithm that actually produced the retained sample.
   expect_false(is.null(attr(obj, "control")))
   expect_no_error(suppressWarnings(plot(obj, type = "convergence", noise = TRUE)))
+})
+
+# The two ESS criteria measure different things and must carry different
+# remedies. Conflating them is what made the old advice wrong.
+
+test_that("low absolute ESS advises more samples", {
+  d <- .sirWeightDiagnostics(c(rep(1e-6, 60), 1), nSuccessful = 61L)
+  expect_lt(d$ess, .sirEssWarn)
+  expect_warning(
+    .sirWarnWeightDegeneracy(d, 1L, nSamples = 61L),
+    "Effective sample size grows roughly in proportion"
+  )
+})
+
+test_that("low efficiency does NOT advise more samples", {
+  # Asymptotically ESS/n converges to a constant fixed by the proposal-target
+  # mismatch, so drawing more samples cannot move it. The warning must not tell
+  # the user otherwise -- that was the defect.
+  d <- .sirWeightDiagnostics(c(rep(1e-6, 999), 1), nSuccessful = 1000L)
+  expect_lt(d$essFraction, .sirEssFractionWarn)
+  w <- tryCatch(
+    .sirWarnWeightDegeneracy(d, 1L, nSamples = 1000L),
+    warning = function(w) conditionMessage(w)
+  )
+  expect_match(w, "property of the proposal, not of the sample size")
+  expect_match(w, "widen the proposal")
+  # The efficiency bullet must not be the one carrying "raise nSamples".
+  efficiency <- sub(".*Proposal efficiency", "", w)
+  expect_false(grepl("more samples raise it", efficiency))
+})
+
+test_that("the efficiency estimate is flagged as biased only at small n", {
+  # Simulated against a known truth of exp(-1) = 0.3679, the estimator reads
+  # 0.514 at n = 16 and 0.369 at n = 5000, so a small run reports a flattering
+  # efficiency. The caveat appears below the documented threshold and not above.
+  small <- .sirWeightDiagnostics(c(rep(1e-6, 60), 1), nSuccessful = 61L)
+  big <- .sirWeightDiagnostics(c(rep(1e-6, 999), 1), nSuccessful = 1000L)
+
+  wSmall <- tryCatch(.sirWarnWeightDegeneracy(small, 1L, nSamples = 61L),
+                     warning = function(w) conditionMessage(w))
+  wBig <- tryCatch(.sirWarnWeightDegeneracy(big, 1L, nSamples = 1000L),
+                   warning = function(w) conditionMessage(w))
+
+  expect_lt(61L, .sirEssFractionReliableN)
+  expect_gt(1000L, .sirEssFractionReliableN)
+  expect_match(wSmall, "optimistically biased")
+  expect_false(grepl("optimistically biased", wBig))
+})
+
+test_that("a healthy sample warns about nothing", {
+  d <- .sirWeightDiagnostics(rep(1, 5000) / 5000, nSuccessful = 5000L)
+  expect_equal(d$ess, 5000)
+  expect_equal(d$essFraction, 1)
+  expect_false(.sirWarnWeightDegeneracy(d, 1L, nSamples = 5000L))
+})
+
+test_that("absolute ESS is what a large but inefficient run is judged on", {
+  # 20% efficiency on 2000 samples is a poor proposal but 400 effective points,
+  # which is plenty for percentile intervals. The efficiency bullet fires; the
+  # absolute-ESS one does not, because the result IS supportable.
+  n <- 2000L
+  p <- c(rep(4, 400), rep(0.0025, n - 400))
+  d <- .sirWeightDiagnostics(p / sum(p), nSuccessful = n)
+  expect_gt(d$ess, .sirEssWarn)
+  w <- tryCatch(.sirWarnWeightDegeneracy(d, 1L, nSamples = n),
+                warning = function(w) conditionMessage(w))
+  if (d$essFraction < .sirEssFractionWarn) {
+    expect_match(w, "Proposal efficiency")
+    expect_false(grepl("Effective sample size is", w))
+  } else {
+    expect_false(is.character(w))
+  }
 })

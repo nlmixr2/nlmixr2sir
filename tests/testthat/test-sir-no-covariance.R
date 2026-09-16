@@ -40,7 +40,7 @@ test_that("runSIR completes end-to-end on a theta-only covariance", {
   skip_on_cran()
   dir <- withr::local_tempdir()
   set.seed(21)
-  res <- suppressMessages(runSIR(
+  res <- .sirQuiet(runSIR(
     theoFitThetaCov(),
     nSamples = 16L,
     nResample = 8L,
@@ -70,7 +70,7 @@ test_that("the default runSIR call on a no-covariance fit is actionable", {
   skip_on_cran()
   dir <- withr::local_tempdir()
   err <- tryCatch(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       theoFitNoCov(),
       nSamples = 16L,
       nResample = 8L,

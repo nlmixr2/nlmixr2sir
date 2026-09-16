@@ -131,7 +131,7 @@ test_that("runSIR registers a covariance that setCov() can select", {
   tmp <- tempfile("sir_setcov_")
   on.exit(unlink(tmp, recursive = TRUE), add = TRUE)
   set.seed(3)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     fit,
     nSamples = 16L,
     nResample = 8L,

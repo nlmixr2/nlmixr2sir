@@ -42,6 +42,30 @@
   and note that percentile intervals from a likelihood-weighted sample do not
   automatically have nominal frequentist coverage.
 
+## Diagnostics
+
+* **The importance-weight degeneracy warning now separates two different
+  problems.** It previously thresholded the ESS *fraction* and then advised
+  "widen the proposal with the inflation controls, or raise `nSamples`" for
+  whatever fired. The second half of that advice was wrong for the fraction:
+  ESS/n converges to a constant fixed by the proposal-target mismatch, so more
+  samples raise the effective sample size but leave the ratio where it is.
+
+  There are now two ESS criteria with their own remedies. Absolute ESS (warns
+  below 100) bounds what the retained distribution can support -- percentile
+  intervals cannot be finer than the effective draws behind them -- and it does
+  grow in proportion to `nSamples`. Efficiency (warns below 10%) is a property
+  of the proposal, and the remedy is to widen it.
+
+* **The efficiency figure is now flagged when it is measured on too few
+  samples.** Estimated from few draws it is optimistically biased, and most so
+  when the proposal is worst, because a small sample misses the tails where the
+  large weights live. Simulated against a known ratio of 0.3679, the estimator
+  reads 0.514 at n = 16 and 0.369 at n = 5000. A short pilot therefore flatters
+  its own proposal, and raising `nSamples` can make the reported efficiency
+  fall simply because the estimate is becoming honest. Below 200 samples the
+  warning says so rather than leaving the user to read it as a regression.
+
 ## Run identity, feasibility and robustness
 
 * **Added iterations now keep a cumulative schedule.** `addIterations = TRUE`

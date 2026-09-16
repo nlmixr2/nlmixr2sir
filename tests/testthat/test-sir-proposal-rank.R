@@ -106,7 +106,7 @@ test_that("runSIR rejects nResample too small for the parameter count", {
   # A full-rank empirical covariance needs more retained vectors than
   # parameters. Catch it before any sampling or model evaluation happens.
   expect_error(
-    suppressMessages(runSIR(
+    .sirQuiet(runSIR(
       fit,
       nSamples = 40L,
       nResample = p,

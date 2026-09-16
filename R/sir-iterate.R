@@ -218,7 +218,9 @@ sirRunIteration <- function(
     weights$prob_resample,
     nSuccessful = n_success
   )
-  .sirWarnWeightDegeneracy(weight_diag, iterNum)
+  # n_success is the denominator of the efficiency ratio, and the warning uses
+  # it to say when that ratio is measured on too few samples to trust.
+  .sirWarnWeightDegeneracy(weight_diag, iterNum, nSamples = n_success)
 
   # ---- 8. Recenter ----
   new_mu <- proposal$mu

@@ -521,6 +521,54 @@ disagrees on exact halves — `round(20.5)` is 21 in nlmixr2sir and 20 in R.
 
 ## Diagnostics
 
+### Importance-weight degeneracy
+
+Normalising the weights in log space stops them overflowing, but successful
+normalisation says nothing about whether the sample is *informative*. A run in
+which two candidates carry almost all the weight normalises perfectly well,
+and its retained sample is those two points repeated `nResample` times.
+
+[`.sirWeightDiagnostics()`](../R/sir-weight-diagnostics.R) reports Kish's
+effective sample size $\mathrm{ESS} = 1/\sum_i p_i^2$, that value as a fraction
+of the usable samples, the largest single weight, perplexity
+($\exp$ of the Shannon entropy) and a count of non-negligible weights.
+
+Two of these are thresholded, and **they are different quantities with
+different remedies** — conflating them produced advice that was wrong.
+
+**Absolute ESS bounds what the result can support.** A retained distribution
+resting on $K$ effectively independent points cannot locate its own 2.5th and
+97.5th percentiles more finely than $K$ draws allow, whatever `nResample`
+reports. ESS grows roughly in proportion to the number of samples, so more
+samples is the correct remedy. `runSIR()` warns below 100.
+
+**Efficiency, ESS/$n$, is a property of the proposal.** For proposal $q$ and
+target $p$ it converges to a constant fixed by the mismatch between them,
+$1/(1+\mathrm{CV}^2(w))$ — not to zero, and not to one. Drawing more samples
+raises ESS and leaves this ratio alone, so "raise `nSamples`" is *not* a remedy
+for a low ratio; widening the proposal is. `runSIR()` warns below 10%.
+
+The estimator of that ratio is also **optimistically biased at small $n$**, and
+most so when the proposal is worst — a small sample does not reach the tails
+where the large weights live, so the weights it does see look more even than
+they are. Simulating $q = N(0,1)$ against $p = N(1,1)$, where the asymptotic
+ratio is $e^{-1} = 0.3679$ exactly:
+
+| $n$ | mean ESS | mean ESS/$n$ | bias |
+| --- | --- | --- | --- |
+| 16 | 8.2 | 0.514 | +0.146 |
+| 50 | 22.5 | 0.450 | +0.082 |
+| 200 | 80.2 | 0.401 | +0.033 |
+| 1000 | 379.4 | 0.379 | +0.012 |
+| 5000 | 1842.4 | 0.369 | +0.001 |
+
+Two consequences worth stating plainly. A small run **flatters its own
+proposal**, so a good-looking efficiency from a short pilot is weak evidence.
+And raising `nSamples` can make the *reported* efficiency fall, not because
+anything got worse but because the estimate became honest — the warning says so
+below 200 samples rather than leaving the user to infer a regression that did
+not happen.
+
 ### Convergence: dOFV against a reference chi-square
 
 The most informative SIR diagnostic. For a

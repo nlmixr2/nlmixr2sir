@@ -1290,7 +1290,7 @@ test_that("runSIR runs end-to-end and writes Step 10 artifacts", {
   on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
 
   set.seed(20260420)
-  res <- suppressMessages(
+  res <- .sirQuiet(
     runSIR(
       theoFit(),
       nSamples = c(16L, 16L),

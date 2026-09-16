@@ -391,7 +391,7 @@ test_that("sirRunIteration accepts and returns a reference OFV", {
   skip_on_cran()
   fit <- theoFit()
   set.seed(42)
-  it <- suppressMessages(sirRunIteration(
+  it <- .sirQuiet(sirRunIteration(
     fit,
     mu = .sirProposalMu(fit),
     proposalCov = sirGetProposalCov(fit),
@@ -410,7 +410,7 @@ test_that("recentring moves the reference OFV to the better optimum", {
   skip_on_cran()
   fit <- theoFit()
   set.seed(42)
-  it <- suppressMessages(sirRunIteration(
+  it <- .sirQuiet(sirRunIteration(
     fit,
     mu = .sirProposalMu(fit),
     proposalCov = sirGetProposalCov(fit),
@@ -438,7 +438,7 @@ test_that("a supplied referenceOfv is what dOFV is measured against", {
   shifted <- fit$objf - 10
 
   set.seed(42)
-  base <- suppressMessages(sirRunIteration(
+  base <- .sirQuiet(sirRunIteration(
     fit,
     mu = .sirProposalMu(fit),
     proposalCov = sirGetProposalCov(fit),
@@ -469,7 +469,7 @@ test_that("runSIR persists the reference OFV across added iterations", {
   dir <- withr::local_tempdir()
 
   set.seed(11)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     fit,
     nSamples = 16L,
     nResample = 8L,
@@ -495,7 +495,7 @@ test_that("added iterations resume from the saved reference OFV", {
   dir <- withr::local_tempdir()
 
   set.seed(7)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     fit,
     nSamples = 16L,
     nResample = 8L,
@@ -505,7 +505,7 @@ test_that("added iterations resume from the saved reference OFV", {
   first <- nlmixr2utils::readRunState(dir, .sirStateSchema())$nextReferenceOfv
 
   set.seed(8)
-  suppressMessages(runSIR(
+  .sirQuiet(runSIR(
     fit,
     nSamples = 16L,
     nResample = 8L,
