@@ -103,28 +103,32 @@
   # control and copy its versions of exactly those fields.
   ref <- tryCatch(do.call(ctlFun, .sirEvalOverrides), error = function(e) NULL)
 
-  if (!is.null(ctl)) {
-    src <- if (is.null(ref)) .sirEvalOverrides else ref
-    for (nm in names(.sirEvalOverrides)) {
-      # ctl[nm] <- list(v), not ctl[[nm]] <- v: the latter DELETES the element
-      # when v is NULL, and the normalised `print` is NULL.
-      ctl[nm] <- list(src[[nm]])
-    }
-    return(ctl)
+  # Fail closed on both counts. Either fallback -- raw unnormalised overrides,
+  # or the method's bare defaults -- can put the evaluator on a different
+  # surface from the one fit$objf came from, which is precisely the failure the
+  # whole-control carry exists to prevent. Refusing to run is the only safe
+  # answer: a wrong dOFV is invisible, a refused run is not.
+  if (is.null(ref)) {
+    cli::cli_abort(c(
+      "Could not build the evaluation control for {.val {est}}.",
+      "i" = "SIR must score candidates on the same likelihood that produced {.code fit$objf}, and cannot verify that it would.",
+      "i" = "This is refused rather than approximated, because a candidate scored on the wrong surface is not detectable from the result."
+    ))
+  }
+  if (is.null(ctl)) {
+    cli::cli_abort(c(
+      "{.arg fit} carries no usable control object.",
+      "i" = "Its estimation settings are what the evaluator reproduces, so they cannot be guessed at.",
+      "i" = "Refit, or supply a fit whose {.code fit$control} is intact."
+    ))
   }
 
-  # No usable control on the fit: fall back to the method's own defaults.
-  tryCatch(
-    if (is.null(ref)) stop("could not build a default control") else ref,
-    error = function(e) {
-      cli::cli_abort(c(
-        "Could not reconstruct the fit's objective settings for evaluation.",
-        "x" = conditionMessage(e),
-        "i" = "Estimation method: {.val {est}}.",
-        "i" = "SIR must score candidates on the same likelihood that produced {.code fit$objf}."
-      ))
-    }
-  )
+  for (nm in names(.sirEvalOverrides)) {
+    # ctl[nm] <- list(v), not ctl[[nm]] <- v: the latter DELETES the element
+    # when v is NULL, and the normalised `print` is NULL.
+    ctl[nm] <- list(ref[[nm]])
+  }
+  ctl
 }
 
 sirEvalOFV <- function(fit, paramSamples, workers = NULL, rxThreads = NULL) {

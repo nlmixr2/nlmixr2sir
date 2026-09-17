@@ -205,10 +205,15 @@ sirRawResultsPath <- .sirLazy(local({
 # test-sir-weight-diagnostics.R.
 #
 # Note this is NOT suppressWarnings(): any other warning still surfaces and
-# still fails a suite that is expected to be quiet. Resizing the fixtures is
-# not an alternative -- essFraction is ESS/n and falls as n rises on these
-# models (0.54 at n = 16 against 0.02 at n = 500), so a bigger fixture warns
-# harder, not less.
+# still fails a suite that is expected to be quiet.
+#
+# Resizing the fixtures is not a general alternative. It would raise absolute
+# ESS, which is proportional to n, so the ESS criterion could be satisfied that
+# way -- at a runtime cost the suite does not want to pay. It would NOT
+# reliably satisfy the efficiency criterion: ESS/n converges to a constant
+# fixed by the proposal-target mismatch, and its estimate at small n is
+# optimistically biased, so a larger fixture can report a LOWER efficiency
+# than a smaller one on the same model.
 .sirQuiet <- function(expr) {
   withCallingHandlers(
     suppressMessages(expr),

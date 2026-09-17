@@ -48,12 +48,20 @@
 # the reported ratio FALL as the estimate becomes honest. A user who reads that
 # as a regression and responds by drawing more samples again is chasing an
 # artefact. The warning says so rather than leaving them to work it out.
+# All three are diagnostic CONVENTIONS, not reliability boundaries. Whether a
+# given ESS supports a given quantile depends on the weight distribution and
+# especially its tail behaviour -- a sample can clear every threshold here and
+# still be unreliable if the weights have heavy tails, and a well-behaved one
+# below them may be perfectly usable. They are set where they are to catch
+# samples that are degenerate rather than merely uneven, and they are quoted in
+# the warning so the reader can judge rather than defer.
 .sirEssWarn <- 100
 .sirEssFractionWarn <- 0.10
 .sirMaxWeightWarn <- 0.50
 
 # Below this many samples the efficiency estimate is optimistically biased
-# enough to be worth flagging; see the table above.
+# enough to be worth flagging; see the table above. Also a convention -- the
+# bias falls off smoothly rather than at a cliff.
 .sirEssFractionReliableN <- 200
 
 #' Degeneracy summaries for a set of normalized importance weights
@@ -158,9 +166,24 @@
       "negligible weight."
     ))
     msg <- c(msg, "i" = paste0(
-      "This ratio is a property of the proposal, not of the sample size. ",
-      "Raising {.arg nSamples} raises the effective sample size but leaves the ",
-      "ratio where it is; widen the proposal with the inflation controls instead."
+      "This ratio is a property of the proposal, not of the sample size: ",
+      "raising {.arg nSamples} raises the effective sample size but leaves the ",
+      "ratio where it is."
+    ))
+    # Deliberately does NOT say "widen the proposal". ESS/n measures the
+    # MAGNITUDE of the proposal-target mismatch, not its direction: a proposal
+    # that is too wide scores just as badly as one that is too narrow. For a
+    # standard normal target the asymptotic efficiency of a centred normal
+    # proposal is sqrt(2 - 1/s^2)/s, which falls monotonically as s grows --
+    # 14.1% at SD 10, 7.1% at SD 20, 3.5% at SD 40 -- so widening a proposal
+    # that is already too wide makes this number worse. The convergence plot is
+    # what distinguishes the two cases, so the user is sent there.
+    msg <- c(msg, "i" = paste0(
+      "Low efficiency means the proposal is a poor match for the likelihood, ",
+      "but not in which direction -- too wide scores as badly as too narrow. ",
+      "Check {.code plot(type = \"convergence\")}: widen with the inflation ",
+      "controls only if the first iteration's proposal curve sits below the ",
+      "reference."
     ))
     if (small_n) {
       msg <- c(msg, "!" = paste0(

@@ -171,7 +171,8 @@ test_that("low efficiency does NOT advise more samples", {
     warning = function(w) conditionMessage(w)
   )
   expect_match(w, "property of the proposal, not of the sample size")
-  expect_match(w, "widen the proposal")
+  # Directs the reader to the convergence diagnostic rather than prescribing a
+  # direction; see the test below for why a bare "widen" would be wrong.
   # The efficiency bullet must not be the one carrying "raise nSamples".
   efficiency <- sub(".*Proposal efficiency", "", w)
   expect_false(grepl("more samples raise it", efficiency))
@@ -202,20 +203,52 @@ test_that("a healthy sample warns about nothing", {
   expect_false(.sirWarnWeightDegeneracy(d, 1L, nSamples = 5000L))
 })
 
-test_that("absolute ESS is what a large but inefficient run is judged on", {
-  # 20% efficiency on 2000 samples is a poor proposal but 400 effective points,
-  # which is plenty for percentile intervals. The efficiency bullet fires; the
-  # absolute-ESS one does not, because the result IS supportable.
-  n <- 2000L
-  p <- c(rep(4, 400), rep(0.0025, n - 400))
+test_that("a large but inefficient run is judged on its absolute ESS", {
+  # Both premises must hold simultaneously, and are asserted rather than
+  # branched on: the earlier version of this test wrapped its assertions in
+  # `if (essFraction < threshold)` and constructed a fraction of 20%, so it
+  # silently took the no-warning path and never checked the branch its comment
+  # described.
+  #
+  # 200 candidates sharing the weight out of 5000 gives ESS = 200 (above the
+  # absolute threshold, so the result IS supportable) at 4% efficiency (below
+  # the efficiency threshold, so the proposal is poor).
+  n <- 5000L
+  k <- 200L
+  p <- c(rep(1, k), rep(0, n - k))
   d <- .sirWeightDiagnostics(p / sum(p), nSuccessful = n)
-  expect_gt(d$ess, .sirEssWarn)
-  w <- tryCatch(.sirWarnWeightDegeneracy(d, 1L, nSamples = n),
-                warning = function(w) conditionMessage(w))
-  if (d$essFraction < .sirEssFractionWarn) {
-    expect_match(w, "Proposal efficiency")
-    expect_false(grepl("Effective sample size is", w))
-  } else {
-    expect_false(is.character(w))
-  }
+
+  expect_equal(d$ess, k, tolerance = 1e-8)
+  expect_gt(d$ess, .sirEssWarn)                    # premise 1
+  expect_lt(d$essFraction, .sirEssFractionWarn)    # premise 2
+
+  w <- tryCatch(
+    .sirWarnWeightDegeneracy(d, 1L, nSamples = n),
+    warning = function(w) conditionMessage(w)
+  )
+  expect_true(is.character(w))
+  # The efficiency bullet fires; the absolute-ESS one does not.
+  expect_match(w, "Proposal efficiency")
+  expect_false(grepl("Effective sample size is", w))
+})
+
+test_that("the efficiency advice does not assume the proposal is too narrow", {
+  # ESS/n measures the magnitude of proposal-target mismatch, not its
+  # direction. For a standard normal target the asymptotic efficiency of a
+  # centred normal proposal is sqrt(2 - 1/s^2)/s: 14.1% at SD 10, 7.1% at SD 20
+  # and 3.5% at SD 40. Widening an already-too-wide proposal therefore makes
+  # this number worse, so the warning must not tell the user to widen outright.
+  eff <- function(s) sqrt(2 - 1 / s^2) / s
+  expect_lt(eff(40), eff(20))
+  expect_lt(eff(20), eff(10))
+
+  d <- .sirWeightDiagnostics(c(rep(1e-6, 999), 1), nSuccessful = 1000L)
+  w <- tryCatch(
+    .sirWarnWeightDegeneracy(d, 1L, nSamples = 1000L),
+    warning = function(w) conditionMessage(w)
+  )
+  expect_match(w, "too wide scores as badly as too narrow")
+  expect_match(w, "convergence")
+  # It must not issue a bare instruction to widen.
+  expect_false(grepl("widen the proposal with the inflation controls instead", w))
 })
