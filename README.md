@@ -82,7 +82,7 @@ Using `pak`:
 ```r
 pak::pkg_install(c(
   "kestrel99/nlmixr2utils",
-  "kestrel99/nlmixr2sir"
+  "nlmixr2/nlmixr2sir"
 ))
 ```
 
@@ -90,7 +90,7 @@ Using `remotes`:
 
 ```r
 remotes::install_github("kestrel99/nlmixr2utils")
-remotes::install_github("kestrel99/nlmixr2sir")
+remotes::install_github("nlmixr2/nlmixr2sir")
 ```
 
 ## Basic Use

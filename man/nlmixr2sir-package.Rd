@@ -11,8 +11,8 @@ Sampling importance resampling tools for nlmixr2 fits.
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/kestrel99/nlmixr2sir}
-  \item Report bugs at \url{https://github.com/kestrel99/nlmixr2sir/issues}
+  \item \url{https://github.com/nlmixr2/nlmixr2sir}
+  \item Report bugs at \url{https://github.com/nlmixr2/nlmixr2sir/issues}
 }
 
 }
