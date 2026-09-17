@@ -137,3 +137,69 @@ test_that("a manifest that cannot be written is fatal", {
     "manifest"
   )
 })
+
+# CRAN policy: a package must not write into the user's filespace without
+# explicit consent. Supplying `directory` IS that consent, so a run without one
+# must leave the filesystem untouched.
+#
+# There was no test for this, which is how a broken version of the change
+# passed the whole suite: every existing no-directory test used
+# saveFiles = FALSE, so the saveFiles = TRUE + directory = NULL path was never
+# exercised and aborted inside withRunSeed().
+
+test_that("runSIR writes nothing when no directory is given", {
+  skip_on_cran()
+  sandbox <- withr::local_tempdir()
+  withr::local_dir(sandbox)
+
+  expect_length(list.files(sandbox, all.files = TRUE, no.. = TRUE), 0L)
+
+  res <- .sirQuiet(runSIR(
+    theoFit(),
+    nSamples = 16L,
+    nResample = 8L,
+    control = runSIRControl(workers = 1L)
+  ))
+
+  # Nothing anywhere under the working directory, at any depth.
+  expect_length(list.files(sandbox, all.files = TRUE, no.. = TRUE, recursive = TRUE), 0L)
+  expect_null(attr(res, "outputDir"))
+  expect_false(attr(res, "saveFiles"))
+  # ... and the run is still usable.
+  expect_s3_class(res, "nlmixr2SIR")
+  expect_gt(nrow(res), 0L)
+})
+
+test_that("runSIR writes only where it is told to", {
+  skip_on_cran()
+  sandbox <- withr::local_tempdir()
+  withr::local_dir(sandbox)
+  target <- file.path(sandbox, "explicit")
+
+  res <- .sirQuiet(runSIR(
+    theoFit(),
+    nSamples = 16L,
+    nResample = 8L,
+    directory = target,
+    control = runSIRControl(workers = 1L)
+  ))
+
+  expect_true(dir.exists(target))
+  expect_gt(length(list.files(target)), 0L)
+  expect_equal(normalizePath(attr(res, "outputDir")), normalizePath(target))
+  # The named directory is the ONLY thing created in the working directory.
+  expect_equal(list.files(sandbox), "explicit")
+})
+
+test_that("addIterations without a directory is refused, not silently ignored", {
+  skip_on_cran()
+  expect_error(
+    .sirQuiet(runSIR(
+      theoFit(),
+      nSamples = 16L,
+      nResample = 8L,
+      control = runSIRControl(workers = 1L, addIterations = TRUE)
+    )),
+    "needs the saved state"
+  )
+})

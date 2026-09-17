@@ -13,10 +13,13 @@
 #' @param nSamples Integer vector. Requested number of samples per iteration.
 #' @param nResample Integer vector. Requested number of resamples per
 #'   iteration. Must have the same length as `nSamples`.
-#' @param directory Output directory. If `NULL`, a numbered
-#'   `<fitName>_sir_<N>` directory is created.
-#' @param fitName Optional fit label used when creating an automatic output
-#'   directory and canonical raw-results metadata. When `NULL` (default), the
+#' @param directory Output directory. Run artifacts, saved state and
+#'   diagnostics are written here. When `NULL` (default), **nothing is written
+#'   to disk**: supplying a directory is what grants permission to write, so a
+#'   run that is not given one leaves the filesystem untouched. Recovery and
+#'   `addIterations` read the saved state, so both need a directory.
+#' @param fitName Optional fit label used in canonical raw-results metadata and
+#'   in the names of the files written under `directory`. When `NULL` (default), the
 #'   label is derived from the expression supplied to `fit`.
 #' @param control A [runSIRControl()] object holding everything that tunes
 #'   how the run behaves: inflation, caps, recentering, Box-Cox, parallelism,
@@ -167,19 +170,50 @@ runSIR <- function(
     initial = initial
   )
 
-  if (!saveFiles) {
-    # Nothing is written and no directory is created, so there is no state to
-    # resume from and no per-iteration seed file. A single set.seed() before
-    # the call is what makes such a run reproducible.
-    if (!is.null(directory)) {
+  # Files are written only when the user has named somewhere to write them.
+  #
+  # CRAN policy is that a package must not write into the user's filespace
+  # without explicit consent. runSIR() used to create a numbered
+  # <fitName>_sir_<N> directory in the working directory whenever `directory`
+  # was left at its NULL default, which is exactly that. Supplying `directory`
+  # IS the consent, so that is now what enables persistence.
+  #
+  # Nothing is written without it: no directory, no state, no per-iteration
+  # seed file. A single set.seed() before the call is what makes such a run
+  # reproducible, and recovery and addIterations are unavailable because there
+  # is nothing on disk to resume from.
+  write_files <- saveFiles && !is.null(directory)
+
+  if (!write_files) {
+    if (!saveFiles && !is.null(directory)) {
       cli::cli_inform(
         "{.arg saveFiles} is {.code FALSE}; {.arg directory} is ignored and nothing is written."
       )
+    } else if (saveFiles) {
+      # The common case: defaults. Said once, plainly, because a user expecting
+      # artifacts on disk needs to know why there are none.
+      cli::cli_inform(c(
+        "No {.arg directory} given, so nothing is written to disk.",
+        "i" = "Pass {.arg directory} to save run artifacts, state and diagnostics.",
+        "i" = "Recovery and {.code addIterations} need those files, so they are unavailable here."
+      ))
+    }
+    if (isTRUE(addIterations)) {
+      cli::cli_abort(c(
+        "{.code addIterations = TRUE} needs the saved state of a previous run.",
+        "x" = if (is.null(directory)) {
+          "No {.arg directory} was given, so there is nothing to extend."
+        } else {
+          "{.arg saveFiles} is {.code FALSE}, so no state was ever written."
+        },
+        "i" = "Pass the {.arg directory} of the run to extend."
+      ))
     }
     output_dir <- NULL
     master_seed <- NULL
     saved_state <- NULL
     recover <- FALSE
+    addIterations <- FALSE
   } else {
     run_dir <- nlmixr2utils::resolveRunDir(
       "sir",
@@ -390,7 +424,7 @@ runSIR <- function(
     # Per-iteration seeding exists so a resumed run reproduces the stream it
     # would have had. With nothing persisted there is nothing to resume, so the
     # ambient RNG drives the run and a single set.seed() reproduces it.
-    iter_res <- if (saveFiles) {
+    iter_res <- if (write_files) {
       nlmixr2utils::withRunSeed(
         output_dir,
         key = paste0("sir-iteration-", iter_num),
@@ -409,7 +443,7 @@ runSIR <- function(
     if (is.null(initial_repair)) {
       initial_repair <- iter_res$proposalRepair
     }
-    if (saveFiles) {
+    if (write_files) {
       .sirWriteIterationSummary(iter_summary, output_dir)
       .sirWriteRejectionSummary(iter_summary, output_dir)
     }
@@ -425,7 +459,7 @@ runSIR <- function(
     prev_attempted <- iter_res$iterSummary$nAttempted
     prev_successful <- iter_res$iterSummary$nSuccessful
 
-    if (saveFiles) {
+    if (write_files) {
       nlmixr2utils::writeRunState(
       output_dir,
       list(
@@ -456,7 +490,7 @@ runSIR <- function(
   # The canonical raw results are part of the returned object either way; only
   # writing them to disk is optional.
   raw_results <- .sirCanonicalRawResults(fit, fitName, final_iter$resampledMat)
-  if (saveFiles) {
+  if (write_files) {
     utils::write.csv(
       summary_df,
       file.path(output_dir, "sir_results.csv"),
@@ -490,9 +524,11 @@ runSIR <- function(
   attr(summary_df, "proposalSource") <- proposal_source
   attr(summary_df, "referenceOfvHistory") <- reference_ofv_history
   attr(summary_df, "fingerprint") <- fingerprint
-  attr(summary_df, "saveFiles") <- saveFiles
+  # Records whether files were actually written, which is saveFiles AND a
+  # directory having been supplied -- not the control flag alone.
+  attr(summary_df, "saveFiles") <- write_files
 
-  if (saveFiles) {
+  if (write_files) {
     nlmixr2utils::writeRunState(
       output_dir,
       list(

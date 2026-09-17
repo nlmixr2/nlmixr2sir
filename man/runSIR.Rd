@@ -22,11 +22,14 @@ runSIR(
 \item{nResample}{Integer vector. Requested number of resamples per
 iteration. Must have the same length as \code{nSamples}.}
 
-\item{directory}{Output directory. If \code{NULL}, a numbered
-\verb{<fitName>_sir_<N>} directory is created.}
+\item{directory}{Output directory. Run artifacts, saved state and
+diagnostics are written here. When \code{NULL} (default), \strong{nothing is written
+to disk}: supplying a directory is what grants permission to write, so a
+run that is not given one leaves the filesystem untouched. Recovery and
+\code{addIterations} read the saved state, so both need a directory.}
 
-\item{fitName}{Optional fit label used when creating an automatic output
-directory and canonical raw-results metadata. When \code{NULL} (default), the
+\item{fitName}{Optional fit label used in canonical raw-results metadata and
+in the names of the files written under \code{directory}. When \code{NULL} (default), the
 label is derived from the expression supplied to \code{fit}.}
 
 \item{control}{A \code{\link[=runSIRControl]{runSIRControl()}} object holding everything that tunes
