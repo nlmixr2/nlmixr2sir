@@ -31,13 +31,42 @@
 #'   `iterationSummary`, `iterations`, `resampledMat`, `covMatrix`,
 #'   `corMatrix`, and `outputDir`.
 #' @examples
-#' \dontrun{
+#' \donttest{
+#' one.cmt <- function() {
+#'   ini({
+#'     tka <- 0.45
+#'     tcl <- 1
+#'     tv <- 3.45
+#'     eta.ka ~ 0.6
+#'     add.sd <- 0.7
+#'   })
+#'   model({
+#'     ka <- exp(tka + eta.ka)
+#'     cl <- exp(tcl)
+#'     v <- exp(tv)
+#'     linCmt() ~ add(add.sd)
+#'   })
+#' }
+#'
+#' fit <- nlmixr2est::nlmixr2(
+#'   one.cmt, nlmixr2data::theo_sd,
+#'   est = "focei", control = list(print = 0L, covMethod = "r")
+#' )
+#'
+#' # Deliberately tiny so the example stays quick. A real run uses this
+#' # function's defaults: nSamples = c(1000, 1000, 1000, 2000, 2000) and
+#' # nResample = c(200, 400, 500, 1000, 1000).
+#' #
+#' # No `directory` is given, so nothing is written to disk. Pass one to keep
+#' # the run artifacts, and to make recovery and `addIterations` available.
 #' sir <- runSIR(
 #'   fit,
-#'   nSamples = c(1000, 1000, 1000),
-#'   nResample = c(200, 400, 500),
-#'   control = runSIRControl(workers = 4, rxThreads = 2)
+#'   nSamples = 20L,
+#'   nResample = 8L,
+#'   control = runSIRControl(workers = 1L)
 #' )
+#'
+#' print(sir)
 #' }
 #' @seealso [runSIRControl()] for the run settings.
 #' @export
