@@ -111,7 +111,7 @@ test_that("runSIR rejects nResample too small for the parameter count", {
       nSamples = 40L,
       nResample = p,
       directory = dir,
-      control = runSIRControl(recover = FALSE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
     )),
     "nResample"
   )
@@ -152,7 +152,7 @@ test_that("nSamples too small for the parameter count fails before evaluation", 
       fit,
       nSamples = np,
       nResample = np + 1L,
-      control = runSIRControl(workers = 1L, saveFiles = FALSE)
+      control = runSIRControl(objfStencil = FALSE, workers = 1L, saveFiles = FALSE)
     ),
     "nSamples"
   )
@@ -169,7 +169,7 @@ test_that("a resampling cap that cannot supply nResample fails before evaluation
       fit,
       nSamples = np + 2L,
       nResample = np + 5L,
-      control = runSIRControl(workers = 1L, capResampling = 1, saveFiles = FALSE)
+      control = runSIRControl(objfStencil = FALSE, workers = 1L, capResampling = 1, saveFiles = FALSE)
     ),
     "capResampling"
   )

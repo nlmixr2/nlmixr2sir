@@ -19,7 +19,7 @@ test_that("a non-empty unowned directory is refused, not claimed", {
   err <- tryCatch(
     .sirQuiet(runSIR(
       theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -41,12 +41,12 @@ test_that("the two-call sequence cannot destroy an unrelated file", {
 
   try(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = TRUE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
   )), silent = TRUE)
 
   try(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   )), silent = TRUE)
 
   expect_true(file.exists(sentinel))
@@ -59,7 +59,7 @@ test_that("an empty directory may be claimed", {
   expect_length(list.files(dir, all.files = TRUE, no.. = TRUE), 0L)
   expect_no_error(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = TRUE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
   )))
   expect_true(.sirDirIsOwned(dir))
 })
@@ -111,7 +111,7 @@ test_that("a manifest this package wrote does authorize deletion", {
   .sirWriteManifest(
     dir,
     .sirRunFingerprint(
-      theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(workers = 1L)
+      theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L)
     ),
     fitName = "theoFit"
   )
@@ -125,7 +125,7 @@ test_that("a manifest that cannot be written is fatal", {
   # not continue as though it had.
   dir <- withr::local_tempdir()
   fp <- .sirRunFingerprint(
-    theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(workers = 1L)
+    theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L)
   )
   # suppressWarnings() covers base R's own "cannot open file" warning from
   # write.dcf, which fires on the way to the error. The error is the subject
@@ -158,7 +158,7 @@ test_that("runSIR writes nothing when no directory is given", {
     theoFit(),
     nSamples = 16L,
     nResample = 8L,
-    control = runSIRControl(workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, workers = 1L)
   ))
 
   # Nothing anywhere under the working directory, at any depth.
@@ -181,7 +181,7 @@ test_that("runSIR writes only where it is told to", {
     nSamples = 16L,
     nResample = 8L,
     directory = target,
-    control = runSIRControl(workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, workers = 1L)
   ))
 
   expect_true(dir.exists(target))
@@ -198,7 +198,7 @@ test_that("addIterations without a directory is refused, not silently ignored", 
       theoFit(),
       nSamples = 16L,
       nResample = 8L,
-      control = runSIRControl(workers = 1L, addIterations = TRUE)
+      control = runSIRControl(objfStencil = FALSE, workers = 1L, addIterations = TRUE)
     )),
     "needs the saved state"
   )

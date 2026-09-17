@@ -45,7 +45,7 @@ test_that("runSIR completes end-to-end on a theta-only covariance", {
     nSamples = 16L,
     nResample = 8L,
     directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   expect_s3_class(res, "nlmixr2SIR")
   expect_true("eta.ka" %in% res$param)
@@ -75,7 +75,7 @@ test_that("the default runSIR call on a no-covariance fit is actionable", {
       nSamples = 16L,
       nResample = 8L,
       directory = dir,
-      control = runSIRControl(recover = FALSE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )

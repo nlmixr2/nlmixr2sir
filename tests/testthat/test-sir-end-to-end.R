@@ -15,7 +15,7 @@ test_that("runSIR writes the complete artifact set", {
     nResample = c(8L, 8L),
     directory = tmp,
     fitName = "demo",
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   expect_setequal(
@@ -48,7 +48,7 @@ test_that("the written summary round-trips back through read.csv", {
     nSamples = 16L,
     nResample = 8L,
     directory = tmp,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   back <- utils::read.csv(
     file.path(tmp, "sir_results.csv"),
@@ -69,7 +69,7 @@ test_that("recover returns the completed run instead of repeating it", {
     nSamples = c(16L, 16L),
     nResample = c(8L, 8L),
     directory = tmp,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   expect_true(file.exists(file.path(tmp, "sir_state.rds")))
 
@@ -81,7 +81,7 @@ test_that("recover returns the completed run instead of repeating it", {
     nSamples = c(16L, 16L),
     nResample = c(8L, 8L),
     directory = tmp,
-    control = runSIRControl(recover = TRUE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
   ))
   expect_equal(again$estimate, first$estimate, tolerance = 1e-12)
   expect_equal(again$sd, first$sd, tolerance = 1e-12)
@@ -99,7 +99,7 @@ test_that("addIterations extends a completed run", {
     nSamples = c(16L, 16L),
     nResample = c(8L, 8L),
     directory = tmp,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   expect_equal(nrow(attr(first, "iterationSummary")), 2L)
 
@@ -108,7 +108,7 @@ test_that("addIterations extends a completed run", {
     nSamples = 16L,
     nResample = 8L,
     directory = tmp,
-    control = runSIRControl(addIterations = TRUE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, addIterations = TRUE, workers = 1L)
   ))
   summary_df <- attr(extended, "iterationSummary")
   expect_equal(nrow(summary_df), 3L)
@@ -130,7 +130,7 @@ test_that("every diagnostic plot builds from a real run", {
     nSamples = c(20L, 20L),
     nResample = c(10L, 10L),
     directory = tmp,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   for (ty in c(
     "parameters",
@@ -155,7 +155,7 @@ test_that("print() works on a real run", {
     nSamples = 16L,
     nResample = 8L,
     directory = tmp,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   # cli headers go to the message stream; capture.output() sees the tables.
   out <- utils::capture.output(ret <- print(res))
