@@ -10,6 +10,14 @@
 # The preflight settles it empirically, per run, by re-evaluating the fitted
 # centre and comparing with the stored objective before any sampling happens.
 
+# A stand-in evaluator that scores every point `delta` off the stored objective,
+# held ETAs or not: a genuine mismatch on every platform.
+.sirOffsetEval <- function(delta) {
+  function(fit, paramSamples, workers = NULL, rxThreads = NULL, fixEtas = NULL) {
+    rep(fit$objf + delta, nrow(paramSamples))
+  }
+}
+
 test_that("the preflight accepts a fit whose centre reproduces its objective", {
   skip_on_cran()
   fit <- theoFit()
@@ -75,9 +83,12 @@ test_that("a candidate-style centre far from fit$objf warns", {
 test_that("the abort says so when the fit's ETAs could not be held", {
   skip_on_cran()
   fit <- theoFit()
-  local_mocked_bindings(.sirFitEtaMat = function(fit) NULL)
+  local_mocked_bindings(
+    .sirFitEtaMat = function(fit) NULL,
+    sirEvalOFV = .sirOffsetEval(1e-3)
+  )
   err <- tryCatch(
-    .sirCheckObjective(fit, workers = 1L, stencil = FALSE, objfTolerance = 0),
+    .sirCheckObjective(fit, workers = 1L, stencil = FALSE),
     error = function(e) conditionMessage(e)
   )
   expect_match(err, "could not be held", fixed = TRUE)
@@ -99,15 +110,18 @@ test_that("holding the ETAs still refuses a different surface", {
 test_that("the preflight aborts when the centre does not reproduce the objective", {
   skip_on_cran()
   fit <- theoFit()
-  # A tolerance tight enough that even the genuine numerical difference between
-  # the stored and reevaluated objective fails it. This is the mismatch path:
-  # the message must name both values so the user can judge the gap.
+  # An evaluator 1e-3 off the stored objective. This is the mismatch path: the
+  # message must name both values so the user can judge the gap. (This used to
+  # rely on objfTolerance = 0 and a nonzero numerical difference, but at the
+  # fit's own ETAs the objective reproduces exactly on some platforms --
+  # Windows among them -- so there was no difference to find.)
+  local_mocked_bindings(sirEvalOFV = .sirOffsetEval(1e-3))
   expect_error(
-    .sirCheckObjective(fit, workers = 1L, objfTolerance = 0),
+    .sirCheckObjective(fit, workers = 1L),
     "objective"
   )
   err <- tryCatch(
-    .sirCheckObjective(fit, workers = 1L, objfTolerance = 0),
+    .sirCheckObjective(fit, workers = 1L),
     error = function(e) conditionMessage(e)
   )
   expect_match(err, format(fit$objf, digits = 10), fixed = TRUE)
@@ -129,17 +143,14 @@ test_that("runSIR runs the objective preflight before sampling", {
   skip_on_cran()
   fit <- theoFit()
   dir <- withr::local_tempdir()
+  local_mocked_bindings(sirEvalOFV = .sirOffsetEval(1e-3))
   expect_error(
     .sirQuiet(runSIR(
       fit,
       nSamples = 16L,
       nResample = 8L,
       directory = dir,
-      control = runSIRControl(
-        recover = FALSE,
-        workers = 1L,
-        objfTolerance = 0
-      )
+      control = runSIRControl(recover = FALSE, workers = 1L)
     )),
     "objective"
   )
@@ -188,8 +199,9 @@ test_that("the preflight tolerance is absolute, not relative", {
   # A relative rule would wave through a large absolute gap on a large
   # objective. The weights depend on differences in OFV, so only the absolute
   # scale is meaningful.
+  local_mocked_bindings(sirEvalOFV = .sirOffsetEval(1e-3))
   expect_error(
-    .sirCheckObjective(fit, workers = 1L, objfTolerance = 0, stencil = FALSE),
+    .sirCheckObjective(fit, workers = 1L, stencil = FALSE),
     "absolute"
   )
 })
