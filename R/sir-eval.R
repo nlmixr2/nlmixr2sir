@@ -127,7 +127,40 @@
   )
 }
 
-sirEvalOFV <- function(fit, paramSamples, workers = NULL, rxThreads = NULL) {
+# The fit's own ETAs as an etaMat (one row per subject, one column per ETA),
+# or NULL when the fit has none to offer. fit$etaMat first: it is the shape the
+# estimation takes back (IOV columns included, ID and mixnum dropped). The
+# omega-named columns of fit$eta are the fallback for a fit without it.
+.sirFitEtaMat <- function(fit) {
+  em <- tryCatch(fit$etaMat, error = function(e) NULL)
+  if (!is.null(em)) {
+    em <- tryCatch(as.matrix(em), error = function(e) NULL)
+    if (is.matrix(em) && is.numeric(em) && ncol(em) > 0L && !anyNA(em)) {
+      return(em)
+    }
+  }
+  om <- tryCatch(fit$omega, error = function(e) NULL)
+  eta <- tryCatch(fit$eta, error = function(e) NULL)
+  if (!is.matrix(om) || is.null(rownames(om)) || !is.data.frame(eta)) {
+    return(NULL)
+  }
+  nms <- rownames(om)
+  if (!all(nms %in% names(eta))) {
+    return(NULL)
+  }
+  out <- as.matrix(eta[, nms, drop = FALSE])
+  if (anyNA(out)) {
+    return(NULL)
+  }
+  out
+}
+
+# `fixEtas`, a matrix from .sirFitEtaMat(), holds every subject's ETAs at those
+# values instead of re-optimizing them (maxInnerIterations = 0). Only the
+# preflight uses it: it is how the objective is compared with fit$objf at
+# exactly the ETAs that produced it.
+sirEvalOFV <- function(fit, paramSamples, workers = NULL, rxThreads = NULL,
+                       fixEtas = NULL) {
   checkmate::assertClass(fit, "nlmixr2FitCore")
   checkmate::assertMatrix(
     paramSamples,
@@ -160,6 +193,10 @@ sirEvalOFV <- function(fit, paramSamples, workers = NULL, rxThreads = NULL) {
   # whole point.
   evalControl <- .sirEvalControl(fit)
   evalEst <- .sirEvalMethod(fit)
+  if (!is.null(fixEtas)) {
+    evalControl$etaMat <- fixEtas
+    evalControl$maxInnerIterations <- 0L
+  }
 
   eval_one <- function(i) {
     row <- paramSamples[i, ]

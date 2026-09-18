@@ -30,6 +30,22 @@
 
 ## Diagnostics and provenance
 
+* **The objective preflight compares at the fit's own ETAs.** The objective at
+  fixed population parameters still depends on where the per-subject ETA
+  optimization stops, so a cold re-evaluation differs from `fit$objf` by that
+  inner-optimization noise: 1.5e-4 for FOCE and Laplace fits on theo_sd, and
+  1.1e-3 on a three-ETA FOCEi model. That is above the 1e-4 tolerance, so
+  `runSIR()` refused fits whose surface was in fact reproduced exactly,
+  including the one in the vignette. The identity check now holds the ETAs at
+  the fit's own values (`fit$etaMat`, so IOV is included). There the objective
+  agrees to about 1e-13 for focei, foce, laplace, agq, fo and focep. The
+  mu-referenced variants agree to about 1e-4, because their regression-updated
+  mu thetas are part of the evaluation. The check still refuses a genuinely
+  different surface. The candidate-style evaluation is still made. It centres
+  the stencil, its gap from `fit$objf` is reported as `innerNoise`, and a gap
+  larger than `objfStencilTolerance` gives a warning. When the fit's ETAs
+  cannot be held, the abort message says so.
+
 * **Every iteration now reports importance-weight degeneracy.** Effective
   sample size (Kish, `1 / sum(p^2)`), its fraction of the usable samples, the
   largest single weight, perplexity, and the count of non-negligible weights

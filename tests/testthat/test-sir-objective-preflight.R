@@ -20,9 +20,40 @@ test_that("the preflight returns the stored and reevaluated objectives", {
   skip_on_cran()
   fit <- theoFit()
   res <- .sirCheckObjective(fit, workers = 1L)
-  expect_named(res, c("stored", "reevaluated", "absDiff", "relDiff", "stencil"))
+  expect_named(
+    res,
+    c("stored", "reevaluated", "absDiff", "relDiff", "candidateCentre",
+      "innerNoise", "stencil")
+  )
   expect_equal(res$stored, fit$objf, tolerance = 1e-12)
   expect_lt(res$absDiff, 1e-3)
+  expect_equal(res$innerNoise, res$candidateCentre - res$stored)
+})
+
+test_that("the identity check holds the fit's ETAs, so inner-optimization noise does not fail it", {
+  skip_on_cran()
+  # A FOCE fit whose ETAs re-optimize to a slightly different objective at the
+  # same THETA: 1.5e-4 away on theo_sd, above the 1e-4 tolerance. At the fit's
+  # own ETAs the objective is the stored one to rounding.
+  fit <- suppressMessages(suppressWarnings(nlmixr2est::nlmixr2(
+    theoOneCmt, nlmixr2data::theo_sd, est = "foce",
+    control = list(print = 0L, covMethod = "", calcTables = FALSE)
+  )))
+  r <- .sirCheckObjective(fit, workers = 1L, stencil = FALSE)
+  expect_lt(r$absDiff, 1e-8)
+  expect_true(is.finite(r$innerNoise))
+})
+
+test_that("holding the ETAs still refuses a different surface", {
+  skip_on_cran()
+  # FO scored as FOCEi at the FO fit's own ETAs is a different objective, and
+  # the check must say so -- holding the ETAs must not make it pass trivially.
+  fitFo <- theoFitFo()
+  local_mocked_bindings(.sirEvalMethod = function(fit) "focei")
+  expect_error(
+    .sirCheckObjective(fitFo, workers = 1L, stencil = FALSE),
+    "cannot reproduce"
+  )
 })
 
 test_that("the preflight aborts when the centre does not reproduce the objective", {
@@ -181,6 +212,10 @@ test_that("the evaluator reproduces each deterministic method's objective", {
       control = list(print = 0L, covMethod = "", calcTables = FALSE)
     )))
     .sirExpectReproduces(fit, e)
+    # At the fit's own ETAs these reproduce to rounding, far inside 1e-4, so a
+    # drift towards the tolerance shows up here first.
+    r <- nlmixr2sir:::.sirCheckObjective(fit, workers = 1L, stencil = FALSE)
+    expect_lt(r$absDiff, 1e-8)
   }
 })
 
