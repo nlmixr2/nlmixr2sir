@@ -44,6 +44,34 @@ test_that("the identity check holds the fit's ETAs, so inner-optimization noise 
   expect_true(is.finite(r$innerNoise))
 })
 
+test_that("a candidate-style centre far from fit$objf warns", {
+  skip_on_cran()
+  # The identity holds at the fit's own ETAs, but re-optimized ETAs land 5 OFV
+  # units away: every candidate dOFV would carry that offset, so say so.
+  fit <- theoFit()
+  local_mocked_bindings(
+    sirEvalOFV = function(fit, paramSamples, workers = NULL, rxThreads = NULL,
+                          fixEtas = NULL) {
+      if (is.null(fixEtas)) fit$objf + 5 else fit$objf
+    }
+  )
+  expect_warning(
+    r <- .sirCheckObjective(fit, workers = 1L, stencil = FALSE),
+    "away from"
+  )
+  expect_equal(r$innerNoise, 5)
+  expect_lt(r$absDiff, 1e-12)
+
+  # Within the stencil tolerance it is noise, and passes quietly.
+  local_mocked_bindings(
+    sirEvalOFV = function(fit, paramSamples, workers = NULL, rxThreads = NULL,
+                          fixEtas = NULL) {
+      if (is.null(fixEtas)) fit$objf + 1e-3 else fit$objf
+    }
+  )
+  expect_no_warning(.sirCheckObjective(fit, workers = 1L, stencil = FALSE))
+})
+
 test_that("holding the ETAs still refuses a different surface", {
   skip_on_cran()
   # FO scored as FOCEi at the FO fit's own ETAs is a different objective, and

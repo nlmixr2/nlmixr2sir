@@ -167,6 +167,7 @@
       fit,
       centre,
       workers = 1L,
+      rxThreads = rxThreads,
       fixEtas = etaMat
     )[[1L]])
   }
