@@ -354,6 +354,17 @@ test_that("sirEvalOFV returns the same OFVs with future workers", {
   skip_on_cran()
   skip_if_not_installed("future")
   skip_if_not_installed("future.apply")
+  # Workers are fresh R processes that library() nlmixr2sir. Under
+  # devtools::load_all() there is no installed copy for them to load -- or an
+  # older one, which would test stale code -- so this only means something
+  # against an installed package (R CMD check). An installed package has
+  # Meta/package.rds; a source tree does not.
+  skip_if_not(
+    file.exists(file.path(
+      getNamespaceInfo("nlmixr2sir", "path"), "Meta", "package.rds"
+    )),
+    "future workers need an installed nlmixr2sir"
+  )
   plan_before <- future::plan()
   on.exit(future::plan(plan_before), add = TRUE)
 
