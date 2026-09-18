@@ -55,7 +55,40 @@ runSIR <- function(
     ))
   }
   checkmate::assertClass(control, "runSIRControl")
+  checkmate::assertClass(fit, "nlmixr2FitCore")
+  if (is.null(fitName)) {
+    fitName <- nlmixr2utils::deriveFitName(substitute(fit))
+  }
+  .sirRunCore(
+    fit,
+    nSamples = nSamples,
+    nResample = nResample,
+    directory = directory,
+    fitName = fitName,
+    control = control,
+    call = match.call()
+  )
+}
 
+# The body of runSIR(), shared with setCov(fit, "sir").
+#
+# `seedCov` is a proposal seed other than fit$cov (a matrix named with
+# nlmixr2est or SIR names); `parFixedSe = FALSE` stops the fallback SEs being
+# read from fit$parFixedDf, which then describes a different covariance.
+# `register = FALSE` leaves fit$covList alone, for a caller that installs the
+# result itself.
+.sirRunCore <- function(
+  fit,
+  nSamples,
+  nResample,
+  directory,
+  fitName,
+  control,
+  call = NULL,
+  seedCov = NULL,
+  parFixedSe = TRUE,
+  register = TRUE
+) {
   thetaInflation <- control$thetaInflation
   omegaInflation <- control$omegaInflation
   sigmaInflation <- control$sigmaInflation
@@ -72,68 +105,10 @@ runSIR <- function(
   sigmaFallbackRse <- control$sigmaFallbackRse
   omegaDf <- control$omegaDf
 
-  checkmate::assertClass(fit, "nlmixr2FitCore")
-  checkmate::assertIntegerish(
-    nSamples,
-    lower = 1,
-    any.missing = FALSE,
-    min.len = 1L
-  )
-  checkmate::assertIntegerish(
-    nResample,
-    lower = 1,
-    any.missing = FALSE,
-    len = length(nSamples)
-  )
-  if (is.null(fitName)) {
-    fitName <- nlmixr2utils::deriveFitName(substitute(fit))
-  }
-
+  ps <- .sirParamSpace(fit)
+  .sirCheckSchedule(nSamples, nResample, capResampling, nParams = nrow(ps))
   nSamples <- as.integer(nSamples)
   nResample <- as.integer(nResample)
-  ps <- .sirParamSpace(fit)
-
-  # Free check, so it goes first. Each iteration rebuilds the proposal from the
-  # empirical covariance of its retained vectors, which has rank at most
-  # nResample - 1; nResample <= nParams therefore cannot produce a usable
-  # proposal, and there is no point evaluating a single model to find out.
-  n_params <- nrow(ps)
-  if (min(nResample) <= n_params) {
-    bad <- nResample[nResample <= n_params]
-    cli::cli_abort(c(
-      "{.arg nResample} is too small for the number of estimated parameters.",
-      "x" = "Requested {.val {bad}} for {n_params} parameter{?s}.",
-      "i" = "The empirical proposal covariance would have rank at most {min(bad) - 1}.",
-      "i" = "Use {.arg nResample} greater than {n_params}; PsN's working ratio is about 5 samples per resample."
-    ))
-  }
-
-  # A candidate must be drawn before it can be retained, so nSamples bounds the
-  # retained set too. Without this the run reached .sirCheckProposalRank() after
-  # a full round of model evaluations and then blamed nResample, which was fine.
-  if (min(nSamples) <= n_params) {
-    bad <- nSamples[nSamples <= n_params]
-    cli::cli_abort(c(
-      "{.arg nSamples} is too small for the number of estimated parameters.",
-      "x" = "Requested {.val {bad}} for {n_params} parameter{?s}.",
-      "i" = "At most {min(bad)} distinct vector{?s} can be drawn, so the retained sample cannot reach full rank.",
-      "i" = "Increase {.arg nSamples}; PsN's working ratio is about 5 samples per resample."
-    ))
-  }
-
-  # Limited replacement: each candidate fills at most capResampling slots, so
-  # nSamples draws can supply at most nSamples * cap retained vectors. Asking
-  # for more silently produced a clamped run rather than saying so.
-  cap_int <- max(1L, as.integer(floor(capResampling)))
-  if (any(nResample > nSamples * cap_int)) {
-    j <- which(nResample > nSamples * cap_int)[[1L]]
-    cli::cli_abort(c(
-      "{.arg nResample} cannot be met under the current {.arg capResampling}.",
-      "x" = "Iteration {j} asks for {nResample[[j]]} from {nSamples[[j]]} candidate{?s} at cap {cap_int}.",
-      "i" = "The cap allows at most {nSamples[[j]] * cap_int} retained vector{?s}.",
-      "i" = "Lower {.arg nResample}, raise {.arg nSamples}, or raise {.code runSIRControl(capResampling =)}."
-    ))
-  }
 
   # Before anything expensive or destructive: prove that the evaluator used for
   # candidates reproduces this fit's own objective. Every dOFV is measured
@@ -154,7 +129,7 @@ runSIR <- function(
   # inputs before any model evaluation. A recovery run pays for this too, and
   # that is the point: re-reading the file is what detects a changed file at an
   # unchanged path.
-  initial <- .sirResolveInitialProposal(fit, ps, control)
+  initial <- .sirResolveInitialProposal(fit, ps, control, seedCov = seedCov)
 
   # The schedule this call asks for. For a fresh run or a plain recovery it is
   # also the whole schedule; addIterations replaces it below with the prior
@@ -317,7 +292,7 @@ runSIR <- function(
     mu <- initial$mu %||% .sirProposalMu(fit, ps)
     boxcox_state <- initial$boxcoxState
     proposal_source <- initial$source
-    if (!identical(initial$source, "cov")) {
+    if (!(initial$source %in% c("cov", "seedCov"))) {
       cli::cli_inform(
         "Initial SIR proposal built from {.arg {initial$source}}, not {.code fit$cov}."
       )
@@ -384,7 +359,8 @@ runSIR <- function(
         sigmaFallbackRse = sigmaFallbackRse,
         omegaDf = omegaDf,
         isLastIteration = is_last,
-        referenceOfv = reference_ofv
+        referenceOfv = reference_ofv,
+        parFixedSe = parFixedSe
       )
     }
     # Per-iteration seeding exists so a resumed run reproduces the stream it
@@ -465,10 +441,6 @@ runSIR <- function(
     .sirWriteCovMatrices(summary_df, output_dir, fitName = fitName)
     nlmixr2utils::writeRawResults(raw_results, output_dir)
   }
-  # Make the SIR uncertainty selectable with nlmixr2est::setCov(fit, "sir").
-  # This lives in the fit, not on disk, so it happens either way.
-  .sirRegisterCov(fit, summary_df, ps)
-
   class(summary_df) <- c("nlmixr2SIR", "data.frame")
   attr(summary_df, "iterationSummary") <- iter_summary
   attr(summary_df, "iterations") <- iter_results
@@ -480,7 +452,7 @@ runSIR <- function(
   attr(summary_df, "fitName") <- fitName
   attr(summary_df, "rawResults") <- raw_results
   attr(summary_df, "seed") <- master_seed
-  attr(summary_df, "call") <- match.call()
+  attr(summary_df, "call") <- call
   # Complete provenance on the object itself, so a result read back from an
   # .rds can still say what produced it and the diagnostics can describe the
   # algorithm that actually ran rather than assuming defaults.
@@ -491,6 +463,32 @@ runSIR <- function(
   attr(summary_df, "referenceOfvHistory") <- reference_ofv_history
   attr(summary_df, "fingerprint") <- fingerprint
   attr(summary_df, "saveFiles") <- saveFiles
+  # The covariance the run was seeded from, so a setCov(fit, "sir") made while
+  # this result is installed starts from the same place rather than from SIR's
+  # own result. The RSE seed has no matrix.
+  seed_source <- initial$source %||% NA_character_
+  installed_method <- tryCatch(fit$covMethod, error = function(e) NULL)
+  if (identical(seed_source, "cov") && identical(installed_method, "sir")) {
+    # Proposing from an installed SIR covariance: record the seed that one
+    # started from, so SIR is never recorded as its own seed.
+    rec <- tryCatch(fit$env$covOptions[["sir"]], error = function(e) NULL)
+    attr(summary_df, "seedMethod") <- rec$seedMethod
+    attr(summary_df, "seedCov") <- rec$seedCov
+  } else {
+    attr(summary_df, "seedMethod") <- switch(
+      seed_source,
+      cov = installed_method %||% "cov",
+      seedCov = "seedCov",
+      seed_source
+    )
+    attr(summary_df, "seedCov") <- switch(
+      seed_source,
+      cov = fit$cov,
+      seedCov = seedCov,
+      rse = NULL,
+      initial$covMat
+    )
+  }
 
   if (saveFiles) {
     nlmixr2utils::writeRunState(
@@ -514,5 +512,79 @@ runSIR <- function(
     )
   }
 
+  # Make the SIR uncertainty selectable with nlmixr2est::setCov(fit, "sir").
+  # This lives in the fit, not on disk, so it happens either way. After the
+  # attributes are set, because the whole result is stored on the fit too.
+  if (register) {
+    .sirRegisterCov(fit, summary_df, ps)
+  }
+
   summary_df
+}
+
+# Checks on a sampling schedule that need no model evaluation. `nParams` is the
+# number of estimated parameters; NULL skips the checks that need it, as
+# sirControl() must, having no fit.
+.sirCheckSchedule <- function(nSamples, nResample, capResampling = 1,
+                              nParams = NULL) {
+  checkmate::assertIntegerish(
+    nSamples,
+    lower = 1,
+    any.missing = FALSE,
+    min.len = 1L
+  )
+  checkmate::assertIntegerish(
+    nResample,
+    lower = 1,
+    any.missing = FALSE,
+    len = length(nSamples)
+  )
+  nSamples <- as.integer(nSamples)
+  nResample <- as.integer(nResample)
+
+  if (!is.null(nParams)) {
+    # Free check, so it goes first. Each iteration rebuilds the proposal from
+    # the empirical covariance of its retained vectors, which has rank at most
+    # nResample - 1; nResample <= nParams therefore cannot produce a usable
+    # proposal, and there is no point evaluating a single model to find out.
+    n_params <- nParams
+    if (min(nResample) <= n_params) {
+      bad <- nResample[nResample <= n_params]
+      cli::cli_abort(c(
+        "{.arg nResample} is too small for the number of estimated parameters.",
+        "x" = "Requested {.val {bad}} for {n_params} parameter{?s}.",
+        "i" = "The empirical proposal covariance would have rank at most {min(bad) - 1}.",
+        "i" = "Use {.arg nResample} greater than {n_params}; PsN's working ratio is about 5 samples per resample."
+      ))
+    }
+
+    # A candidate must be drawn before it can be retained, so nSamples bounds
+    # the retained set too. Without this the run reached
+    # .sirCheckProposalRank() after a full round of model evaluations and then
+    # blamed nResample, which was fine.
+    if (min(nSamples) <= n_params) {
+      bad <- nSamples[nSamples <= n_params]
+      cli::cli_abort(c(
+        "{.arg nSamples} is too small for the number of estimated parameters.",
+        "x" = "Requested {.val {bad}} for {n_params} parameter{?s}.",
+        "i" = "At most {min(bad)} distinct vector{?s} can be drawn, so the retained sample cannot reach full rank.",
+        "i" = "Increase {.arg nSamples}; PsN's working ratio is about 5 samples per resample."
+      ))
+    }
+  }
+
+  # Limited replacement: each candidate fills at most capResampling slots, so
+  # nSamples draws can supply at most nSamples * cap retained vectors. Asking
+  # for more silently produced a clamped run rather than saying so.
+  cap_int <- max(1L, as.integer(floor(capResampling)))
+  if (any(nResample > nSamples * cap_int)) {
+    j <- which(nResample > nSamples * cap_int)[[1L]]
+    cli::cli_abort(c(
+      "{.arg nResample} cannot be met under the current {.arg capResampling}.",
+      "x" = "Iteration {j} asks for {nResample[[j]]} from {nSamples[[j]]} candidate{?s} at cap {cap_int}.",
+      "i" = "The cap allows at most {nSamples[[j]] * cap_int} retained vector{?s}.",
+      "i" = "Lower {.arg nResample}, raise {.arg nSamples}, or raise {.arg capResampling}."
+    ))
+  }
+  invisible(TRUE)
 }

@@ -1,5 +1,33 @@
 # nlmixr2sir (development version)
 
+## SIR as a covariance step
+
+* **`setCov(fit, "sir")` installs a SIR covariance on the fit.** It runs SIR at
+  the fit's estimates and installs the resampled covariance through
+  `nlmixr2est::setCov()`: the standard errors change, and the previous
+  covariance stays in `fit$covList` so `setCov()` can swap between them. The
+  new `sirControl()` holds its options, with the PsN schedule and a fixed
+  random seed by default. It runs in memory and writes nothing to disk.
+
+* **The SIR covariance is cached by its options *and* its seed.** SIR is seeded
+  from the installed covariance, so `setCov(fit, "sir")` reuses a cached SIR
+  covariance only when both the `sirControl()` options and that seed are
+  unchanged. After `setCov(fit, "analytic")`, say, it recomputes. When `"sir"`
+  is installed, the seed it was computed from is used again rather than SIR's
+  own result. `sirControl(seedCov =)` picks a seed explicitly.
+
+* **A fit without a covariance can still get a SIR covariance.** The seed is
+  then an assumed 30% RSE (`sirControl(rseTheta =)`), and `setCov()` says so.
+
+* **`setCov(fit) <- runSIR(fit, ...)` installs a finished run**, after checking
+  that it was run on that fit. Every route keeps the SIR result on the fit as
+  `fit$sir`, and `runSIR()` records the options and seed of the covariance it
+  registers.
+
+* The SIR covariance is named with nlmixr2est's full-shape names (`om.*`,
+  `cov.*`), so `runSIR()` now registers it for fits whose `fit$cov` has no
+  OMEGA block, or no covariance at all, which it previously skipped.
+
 ## Diagnostics and provenance
 
 * **Every iteration now reports importance-weight degeneracy.** Effective

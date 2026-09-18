@@ -34,8 +34,8 @@
 #' @param fit An nlmixr2 fit.
 #' @return A data frame with one row per estimated, non-fixed parameter and
 #'   columns `sirName`, `covName`, `rawName`, `kind`, `ntheta`, `neta1`,
-#'   `neta2`, `est`, `lower` and `upper`. `covName` is `NA` when `fit$cov`
-#'   does not carry that parameter, which is what drives the fallback choice
+#'   `neta2`, `est`, `lower`, `upper` and `fullCovName`. `covName` is `NA`
+#'   when `fit$cov` does not carry that parameter, which is what drives the fallback choice
 #'   in `.sirInitialProposal()`. Rows are ordered THETA, sigma, then OMEGA
 #'   lower-triangle by column then row.
 #' @noRd
@@ -118,6 +118,10 @@
     out <- rbind(theta_part, omega_part)
   }
 
+  # fullCovName is what nlmixr2est calls the parameter in a full-shape
+  # covariance, whether or not fit$cov carries it. It names a seed covariance
+  # that is not fit$cov, and the SIR covariance installed with setCov().
+  out$fullCovName <- out$covName
   # covName is only a claim about fit$cov if fit$cov actually carries it.
   out$covName[!(out$covName %in% cov_names)] <- NA_character_
   rownames(out) <- NULL

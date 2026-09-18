@@ -26,8 +26,11 @@
 #' @param capCorrelation Numeric in \[0, 1\]. All absolute pairwise
 #'   correlations are capped at this value after inflation. Set to `1` to
 #'   disable. Default `0.8`.
+#' @param cov The covariance to build the proposal from. Defaults to
+#'   `fit$cov`; a seed covariance from elsewhere (another entry of
+#'   `fit$covList`, say) is named with nlmixr2est's covariance names or SIR's.
 #' @return A named, symmetric covariance matrix with the same row/column order
-#'   as `fit$cov`.
+#'   as `cov`.
 #' @importFrom stats cor
 #' @noRd
 sirGetProposalCov <- function(
@@ -35,12 +38,13 @@ sirGetProposalCov <- function(
   thetaInflation = 1,
   omegaInflation = 1,
   sigmaInflation = 1,
-  capCorrelation = 0.8
+  capCorrelation = 0.8,
+  cov = fit$cov
 ) {
   checkmate::assertClass(fit, "nlmixr2FitCore")
   checkmate::assertNumber(capCorrelation, lower = 0, upper = 1, finite = TRUE)
 
-  cov_mat <- fit$cov
+  cov_mat <- cov
   if (is.null(cov_mat) || nrow(cov_mat) == 0L) {
     # There is no automatic route out of this one. A missing OMEGA or SIGMA
     # block can be filled, because the Wishart-style approximation derives it
@@ -60,11 +64,14 @@ sirGetProposalCov <- function(
   }
 
   ps <- .sirParamSpace(fit)
-  idx <- match(rownames(cov_mat), ps$covName)
+  # fullCovName, not covName: a seed that is not fit$cov may carry parameters
+  # fit$cov does not. SIR names are accepted too.
+  idx <- match(rownames(cov_mat), ps$fullCovName)
+  idx[is.na(idx)] <- match(rownames(cov_mat)[is.na(idx)], ps$sirName)
   if (anyNA(idx)) {
     cli::cli_abort(c(
-      "{.code fit$cov} carries parameter{?s} SIR cannot place: {.val {rownames(cov_mat)[is.na(idx)]}}.",
-      "i" = "This means {.fn .sirParamSpace} and {.code fit$cov} disagree about the parameter set."
+      "The covariance carries parameter{?s} SIR cannot place: {.val {rownames(cov_mat)[is.na(idx)]}}.",
+      "i" = "This means {.fn .sirParamSpace} and the covariance disagree about the parameter set."
     ))
   }
 
@@ -113,7 +120,8 @@ sirGetProposalCov <- function(
   ps = .sirParamSpace(fit),
   sigmaFallbackRse = 30,
   omegaDf = NULL,
-  nSub = NULL
+  nSub = NULL,
+  parFixedSe = TRUE
 ) {
   checkmate::assertNumber(sigmaFallbackRse, lower = 0, finite = TRUE)
   se <- stats::setNames(rep(NA_real_, nrow(ps)), ps$sirName)
@@ -137,7 +145,13 @@ sirGetProposalCov <- function(
 
   isThetaish <- ps$kind %in% c("theta", "sigma")
   if (any(isThetaish)) {
-    pf <- tryCatch(fit$parFixedDf, error = function(e) NULL)
+    # parFixedDf reports the installed covariance. When the proposal is seeded
+    # from a different one, those SEs describe neither, so they are not used.
+    pf <- if (parFixedSe) {
+      tryCatch(fit$parFixedDf, error = function(e) NULL)
+    } else {
+      NULL
+    }
     se[isThetaish] <- vapply(
       which(isThetaish),
       function(i) {
@@ -208,7 +222,8 @@ sirGetProposalCov <- function(
   omegaFallback = c("cov", "wishart"),
   sigmaFallbackRse = 30,
   omegaDf = NULL,
-  ps = .sirParamSpace(fit)
+  ps = .sirParamSpace(fit),
+  parFixedSe = TRUE
 ) {
   omegaFallback <- match.arg(omegaFallback)
   checkmate::assertNumeric(mu, finite = TRUE, any.missing = FALSE, min.len = 1L)
@@ -253,7 +268,8 @@ sirGetProposalCov <- function(
       fit,
       ps = ps,
       sigmaFallbackRse = sigmaFallbackRse,
-      omegaDf = omegaDf
+      omegaDf = omegaDf,
+      parFixedSe = parFixedSe
     )
     if (anyNA(se[missingNames])) {
       naNames <- missingNames[is.na(se[missingNames])]
