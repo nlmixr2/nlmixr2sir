@@ -1307,7 +1307,7 @@ test_that("runSIR runs end-to-end and writes Step 10 artifacts", {
       nSamples = c(16L, 16L),
       nResample = c(8L, 8L),
       directory = tmp_dir,
-      control = runSIRControl(recover = FALSE, workers = 1L, boxcox = TRUE)
+      control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L, boxcox = TRUE)
     )
   )
 
@@ -1351,7 +1351,7 @@ test_that("runSIR runs end-to-end and writes Step 10 artifacts", {
 
 test_that("runSIRControl rejects invalid workers before running", {
   skip_on_cran()
-  expect_error(runSIRControl(workers = 0L), "workers")
+  expect_error(runSIRControl(objfStencil = FALSE, workers = 0L), "workers")
 })
 
 test_that("runSIR rejects settings passed outside the control object", {

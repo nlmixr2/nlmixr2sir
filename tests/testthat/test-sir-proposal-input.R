@@ -118,11 +118,11 @@ test_that("covmatInput rejects names that match no parameter", {
 test_that("runSIRControl rejects incompatible proposal sources", {
   skip_on_cran()
   expect_error(
-    runSIRControl(rseTheta = 30, covmatInput = "identity"),
+    runSIRControl(objfStencil = FALSE, rseTheta = 30, covmatInput = "identity"),
     "alternative proposal sources"
   )
   expect_error(
-    runSIRControl(rseTheta = 30, thetaInflation = 2),
+    runSIRControl(objfStencil = FALSE, rseTheta = 30, thetaInflation = 2),
     "Inflation cannot be combined"
   )
 })
@@ -132,18 +132,18 @@ test_that(".sirResolveInitialProposal follows PsN's dispatch order", {
   fit <- theoFit()
   ps <- .sirParamSpace(fit)
   expect_equal(
-    .sirResolveInitialProposal(fit, ps, runSIRControl())$source,
+    .sirResolveInitialProposal(fit, ps, runSIRControl(objfStencil = FALSE))$source,
     "cov"
   )
   expect_equal(
-    .sirResolveInitialProposal(fit, ps, runSIRControl(rseTheta = 30))$source,
+    .sirResolveInitialProposal(fit, ps, runSIRControl(objfStencil = FALSE, rseTheta = 30))$source,
     "rse"
   )
   expect_equal(
     .sirResolveInitialProposal(
       fit,
       ps,
-      runSIRControl(covmatInput = "identity")
+      runSIRControl(objfStencil = FALSE, covmatInput = "identity")
     )$source,
     "covmatInput"
   )
@@ -164,7 +164,7 @@ test_that("runSIR runs on a fit with no covariance step, via rseTheta", {
     nSamples = c(16L, 16L),
     nResample = c(8L, 8L),
     directory = tmp,
-    control = runSIRControl(recover = FALSE, workers = 1L, rseTheta = 30)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L, rseTheta = 30)
   ))
   expect_s3_class(res, "nlmixr2SIR")
   expect_true(all(c("tka", "add.sd", "eta.ka") %in% res$param))
@@ -180,7 +180,7 @@ test_that("runSIR runs on a fit with no covariance step, via covmatInput", {
     nSamples = c(16L, 16L),
     nResample = c(8L, 8L),
     directory = tmp,
-    control = runSIRControl(
+    control = runSIRControl(objfStencil = FALSE, 
       recover = FALSE,
       workers = 1L,
       covmatInput = "identity",
@@ -279,7 +279,7 @@ test_that("runSIR can be seeded from a raw-results file", {
     nSamples = 16L,
     nResample = 8L,
     directory = tmp,
-    control = runSIRControl(
+    control = runSIRControl(objfStencil = FALSE, 
       recover = FALSE,
       workers = 1L,
       rawresInput = sirRawResultsPath()
@@ -291,12 +291,12 @@ test_that("runSIR can be seeded from a raw-results file", {
 test_that("runSIRControl rejects more than one proposal source", {
   skip_on_cran()
   expect_error(
-    runSIRControl(rawresInput = "x.csv", rseTheta = 30),
+    runSIRControl(objfStencil = FALSE, rawresInput = "x.csv", rseTheta = 30),
     "alternative proposal sources"
   )
   expect_error(
-    runSIRControl(rawresInput = "x.csv", covmatInput = "identity"),
+    runSIRControl(objfStencil = FALSE, rawresInput = "x.csv", covmatInput = "identity"),
     "alternative proposal sources"
   )
-  expect_warning(runSIRControl(inFilter = function(d) TRUE), "no effect")
+  expect_warning(runSIRControl(objfStencil = FALSE, inFilter = function(d) TRUE), "no effect")
 })

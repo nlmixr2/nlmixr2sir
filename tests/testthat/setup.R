@@ -172,7 +172,7 @@ sirObj <- .sirLazy(local({
   attr(out, "outputDir") <- tempdir()
   # runSIR() records the effective controls on its result; this stand-in does
   # the same, so diagnostics read the same provenance they would in a real run.
-  attr(out, "control") <- runSIRControl(workers = 1L)
+  attr(out, "control") <- runSIRControl(objfStencil = FALSE, workers = 1L)
   out
 }))
 
@@ -190,10 +190,22 @@ sirRawResultsPath <- .sirLazy(local({
     nSamples = 12L,
     nResample = 8L,
     directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   file.path(dir, "raw_results.csv")
 }))
+
+# Why nearly every runSIRControl() in these tests passes objfStencil = FALSE.
+#
+# The objective preflight's stencil probes the objective either side of every
+# parameter, so it costs 1 + 2p model evaluations on each runSIR() call -- 11 on
+# the 5-parameter fixtures here. Measured, that is 32.6% of a 16-sample run
+# (4.64s against 3.13s), and the suite makes 58 such calls.
+#
+# It verifies a property of the FIT, not of the run, so re-establishing it on
+# the same handful of fixtures 58 times buys nothing. It is exercised directly
+# where it belongs, in test-sir-objective-preflight.R, which is the one file
+# that deliberately leaves it on.
 
 # Run an expression quietly, muffling ONLY the weight-degeneracy warning.
 #
@@ -205,10 +217,15 @@ sirRawResultsPath <- .sirLazy(local({
 # test-sir-weight-diagnostics.R.
 #
 # Note this is NOT suppressWarnings(): any other warning still surfaces and
-# still fails a suite that is expected to be quiet. Resizing the fixtures is
-# not an alternative -- essFraction is ESS/n and falls as n rises on these
-# models (0.54 at n = 16 against 0.02 at n = 500), so a bigger fixture warns
-# harder, not less.
+# still fails a suite that is expected to be quiet.
+#
+# Resizing the fixtures is not a general alternative. It would raise absolute
+# ESS, which is proportional to n, so the ESS criterion could be satisfied that
+# way -- at a runtime cost the suite does not want to pay. It would NOT
+# reliably satisfy the efficiency criterion: ESS/n converges to a constant
+# fixed by the proposal-target mismatch, and its estimate at small n is
+# optimistically biased, so a larger fixture can report a LOWER efficiency
+# than a smaller one on the same model.
 .sirQuiet <- function(expr) {
   withCallingHandlers(
     suppressMessages(expr),

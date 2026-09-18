@@ -3,7 +3,7 @@
 
 test_that("rxUiDeparse round-trips the control object", {
   skip_on_cran()
-  ctl <- runSIRControl(thetaInflation = 2, workers = 4)
+  ctl <- runSIRControl(objfStencil = FALSE, thetaInflation = 2, workers = 4)
   code <- rxode2::rxUiDeparse(ctl, "x")
   expect_type(code, "language")
   x <- eval(code)
@@ -12,13 +12,13 @@ test_that("rxUiDeparse round-trips the control object", {
 
 test_that("rxUiDeparse emits only the arguments that differ from defaults", {
   skip_on_cran()
-  txt <- deparse(rxode2::rxUiDeparse(runSIRControl(workers = 2), "x"))
+  txt <- deparse(rxode2::rxUiDeparse(runSIRControl(objfStencil = FALSE, workers = 2), "x"))
   expect_match(txt, "workers")
   expect_false(grepl("capCorrelation", txt))
   # all defaults deparse to a bare constructor call
   expect_equal(
-    deparse(rxode2::rxUiDeparse(runSIRControl(), "y")),
-    "y <- runSIRControl()"
+    deparse(rxode2::rxUiDeparse(runSIRControl(objfStencil = FALSE), "y")),
+    "y <- runSIRControl(objfStencil = FALSE)"
   )
 })
 
@@ -27,7 +27,7 @@ test_that("the deparsed constructor name is one that actually exists", {
   # .deparseFinal() uses class(object) as the function name, so the class must
   # be the constructor's name. This is what the rename to runSIRControl was
   # for; a package-prefixed class would emit a call to a missing function.
-  expect_equal(class(runSIRControl()), "runSIRControl")
+  expect_equal(class(runSIRControl(objfStencil = FALSE)), "runSIRControl")
   expect_true(is.function(get("runSIRControl")))
 })
 
@@ -145,7 +145,7 @@ test_that("runSIR registers a covariance that setCov() can select", {
     nSamples = 16L,
     nResample = 8L,
     directory = tmp,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   covList <- get("covList", envir = fit$env)

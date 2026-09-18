@@ -14,7 +14,7 @@ test_that("the run fingerprint is deterministic for identical inputs", {
   skip_on_cran()
   fit <- theoFit()
   ps <- .sirParamSpace(fit)
-  ctl <- runSIRControl(workers = 1L)
+  ctl <- runSIRControl(objfStencil = FALSE, workers = 1L)
   a <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), ctl)
   b <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), ctl)
   expect_identical(a, b)
@@ -25,19 +25,19 @@ test_that("the fingerprint changes when the schedule or controls change", {
   skip_on_cran()
   fit <- theoFit()
   ps <- .sirParamSpace(fit)
-  base <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), runSIRControl(workers = 1L))
+  base <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L))
 
-  sched <- .sirRunFingerprint(fit, ps, .sirSchedule(24L, 8L), runSIRControl(workers = 1L))
+  sched <- .sirRunFingerprint(fit, ps, .sirSchedule(24L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L))
   expect_false(identical(base$schedule, sched$schedule))
 
   ctl <- .sirRunFingerprint(
-    fit, ps, .sirSchedule(16L, 8L), runSIRControl(workers = 1L, boxcox = FALSE)
+    fit, ps, .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L, boxcox = FALSE)
   )
   expect_false(identical(base$controls, ctl$controls))
 
   # Parallelism does not change the answer, so it must not invalidate a run.
   par <- .sirRunFingerprint(
-    fit, ps, .sirSchedule(16L, 8L), runSIRControl(workers = 1L, rxThreads = 2L)
+    fit, ps, .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L, rxThreads = 2L)
   )
   expect_identical(base$controls, par$controls)
 })
@@ -45,10 +45,10 @@ test_that("the fingerprint changes when the schedule or controls change", {
 test_that("the fingerprint distinguishes different models and data", {
   skip_on_cran()
   a <- .sirRunFingerprint(
-    theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(workers = 1L)
+    theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L)
   )
   b <- .sirRunFingerprint(
-    blockFit(), .sirParamSpace(blockFit()), .sirSchedule(16L, 8L), runSIRControl(workers = 1L)
+    blockFit(), .sirParamSpace(blockFit()), .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L)
   )
   expect_false(identical(a$model, b$model))
   expect_false(identical(a$params, b$params))
@@ -58,8 +58,8 @@ test_that(".sirCompareFingerprints reports mismatched fields by name", {
   skip_on_cran()
   fit <- theoFit()
   ps <- .sirParamSpace(fit)
-  a <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), runSIRControl(workers = 1L))
-  b <- .sirRunFingerprint(fit, ps, .sirSchedule(24L, 8L), runSIRControl(workers = 1L, boxcox = FALSE))
+  a <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L))
+  b <- .sirRunFingerprint(fit, ps, .sirSchedule(24L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L, boxcox = FALSE))
 
   bad <- .sirCompareFingerprints(a, b)
   expect_true("schedule" %in% bad)
@@ -78,7 +78,7 @@ test_that("recovery refuses a state file from a different run", {
   set.seed(31)
   .sirQuiet(runSIR(
     fit, nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   # Same directory, different schedule: the stored result does not belong to
@@ -86,7 +86,7 @@ test_that("recovery refuses a state file from a different run", {
   err <- tryCatch(
     .sirQuiet(runSIR(
       fit, nSamples = c(16L, 16L), nResample = c(8L, 8L), directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -99,13 +99,13 @@ test_that("recovery refuses a state file from a different model", {
   set.seed(32)
   .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   err <- tryCatch(
     .sirQuiet(runSIR(
       blockFit(), nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -121,7 +121,7 @@ test_that("an unowned non-empty directory is never deleted", {
   err <- tryCatch(
     .sirQuiet(runSIR(
       theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = FALSE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -136,14 +136,14 @@ test_that("a directory nlmixr2sir created carries an ownership marker", {
   set.seed(33)
   .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   expect_true(.sirDirIsOwned(dir))
 
   # A fresh run over its own directory is fine.
   expect_no_error(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   )))
 })
 
@@ -156,7 +156,7 @@ test_that("saveFiles = FALSE writes nothing at all", {
   set.seed(34)
   res <- .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(saveFiles = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, saveFiles = FALSE, workers = 1L)
   ))
 
   expect_s3_class(res, "nlmixr2SIR")
@@ -170,7 +170,7 @@ test_that("saveFiles = FALSE still produces a usable result and diagnostics", {
   set.seed(35)
   res <- .sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L,
-    control = runSIRControl(saveFiles = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, saveFiles = FALSE, workers = 1L)
   ))
   expect_true(all(c("param", "estimate", "mean", "sd") %in% names(res)))
   expect_false(is.null(attr(res, "iterations")))
@@ -182,7 +182,7 @@ test_that("saveFiles = FALSE cannot be combined with addIterations", {
   expect_error(
     .sirQuiet(runSIR(
       theoFit(), nSamples = 16L, nResample = 8L,
-      control = runSIRControl(saveFiles = FALSE, addIterations = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, saveFiles = FALSE, addIterations = TRUE, workers = 1L)
     )),
     "saveFiles"
   )
@@ -195,7 +195,7 @@ test_that("a state file from an older schema version is refused", {
   set.seed(36)
   .sirQuiet(runSIR(
     fit, nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   st <- nlmixr2utils::readRunState(dir, .sirStateSchema())
@@ -205,7 +205,7 @@ test_that("a state file from an older schema version is refused", {
   err <- tryCatch(
     .sirQuiet(runSIR(
       fit, nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -219,7 +219,7 @@ test_that("initial proposal repair is recorded separately from iteration repair"
     fit,
     nSamples = 16L,
     nResample = 8L,
-    control = runSIRControl(workers = 1L, saveFiles = FALSE)
+    control = runSIRControl(objfStencil = FALSE, workers = 1L, saveFiles = FALSE)
   )))
 
   ip <- attr(res, "initialProposalRepair")

@@ -312,9 +312,11 @@
 
 * `runSIR()` now verifies before sampling that it can reproduce the fit's own
   objective at the fit's own estimates, and aborts naming both values if not.
-  Importance sampling assumes one fixed target; candidates are scored by a
-  fresh FOCEi evaluation, which is not guaranteed to be the surface that
-  produced `fit$objf`. The tolerance is `runSIRControl(objfTolerance =)`.
+  Importance sampling assumes one fixed target, and the evaluator is not
+  guaranteed a priori to reproduce the surface that produced `fit$objf`. The
+  tolerance is `runSIRControl(objfTolerance =)`. (Candidates were scored by a
+  fresh FOCEi call at the time of this entry; they are now scored with the
+  fit's own method and control -- see the entries above.)
 
 * `runSIR()` rejects fits whose objective it cannot reproduce, and says so before doing any work.
   A SAEM fit's objective comes from Gaussian quadrature: on `theo_sd` it is

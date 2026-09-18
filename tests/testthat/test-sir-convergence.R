@@ -474,7 +474,7 @@ test_that("runSIR persists the reference OFV across added iterations", {
     nSamples = 16L,
     nResample = 8L,
     directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   state <- nlmixr2utils::readRunState(dir, .sirStateSchema())
@@ -500,7 +500,7 @@ test_that("added iterations resume from the saved reference OFV", {
     nSamples = 16L,
     nResample = 8L,
     directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
   first <- nlmixr2utils::readRunState(dir, .sirStateSchema())$nextReferenceOfv
 
@@ -510,7 +510,7 @@ test_that("added iterations resume from the saved reference OFV", {
     nSamples = 16L,
     nResample = 8L,
     directory = dir,
-    control = runSIRControl(addIterations = TRUE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, addIterations = TRUE, workers = 1L)
   ))
   state <- nlmixr2utils::readRunState(dir, .sirStateSchema())
 

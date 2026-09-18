@@ -1,3 +1,10 @@
+# Deliberately no skip_on_cran(): every test in this file is pure arithmetic on
+# synthetic inputs -- no model fit, no fixture, no file I/O -- and the whole
+# file runs in well under a second. skip_on_cran() is for tests that are slow,
+# need external resources, or are fragile across platforms, and none of that
+# applies here. Skipping would leave CRAN running no check at all of the
+# package's mathematical core, which is the part most worth protecting.
+#
 # B1: rank and positive-definite repair must not depend on parameter units
 #
 # Pharmacometric parameters do not share a unit. A clearance, a log-scale

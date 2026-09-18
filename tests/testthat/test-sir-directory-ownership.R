@@ -19,7 +19,7 @@ test_that("a non-empty unowned directory is refused, not claimed", {
   err <- tryCatch(
     .sirQuiet(runSIR(
       theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -41,12 +41,12 @@ test_that("the two-call sequence cannot destroy an unrelated file", {
 
   try(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = TRUE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
   )), silent = TRUE)
 
   try(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   )), silent = TRUE)
 
   expect_true(file.exists(sentinel))
@@ -59,7 +59,7 @@ test_that("an empty directory may be claimed", {
   expect_length(list.files(dir, all.files = TRUE, no.. = TRUE), 0L)
   expect_no_error(.sirQuiet(runSIR(
     theoFit(), nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = TRUE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
   )))
   expect_true(.sirDirIsOwned(dir))
 })
@@ -111,7 +111,7 @@ test_that("a manifest this package wrote does authorize deletion", {
   .sirWriteManifest(
     dir,
     .sirRunFingerprint(
-      theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(workers = 1L)
+      theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L)
     ),
     fitName = "theoFit"
   )
@@ -125,7 +125,7 @@ test_that("a manifest that cannot be written is fatal", {
   # not continue as though it had.
   dir <- withr::local_tempdir()
   fp <- .sirRunFingerprint(
-    theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(workers = 1L)
+    theoFit(), .sirParamSpace(theoFit()), .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L)
   )
   # suppressWarnings() covers base R's own "cannot open file" warning from
   # write.dcf, which fires on the way to the error. The error is the subject
@@ -135,5 +135,71 @@ test_that("a manifest that cannot be written is fatal", {
       file.path(dir, "no", "such", "directory"), fp, fitName = "theoFit"
     )),
     "manifest"
+  )
+})
+
+# CRAN policy: a package must not write into the user's filespace without
+# explicit consent. Supplying `directory` IS that consent, so a run without one
+# must leave the filesystem untouched.
+#
+# There was no test for this, which is how a broken version of the change
+# passed the whole suite: every existing no-directory test used
+# saveFiles = FALSE, so the saveFiles = TRUE + directory = NULL path was never
+# exercised and aborted inside withRunSeed().
+
+test_that("runSIR writes nothing when no directory is given", {
+  skip_on_cran()
+  sandbox <- withr::local_tempdir()
+  withr::local_dir(sandbox)
+
+  expect_length(list.files(sandbox, all.files = TRUE, no.. = TRUE), 0L)
+
+  res <- .sirQuiet(runSIR(
+    theoFit(),
+    nSamples = 16L,
+    nResample = 8L,
+    control = runSIRControl(objfStencil = FALSE, workers = 1L)
+  ))
+
+  # Nothing anywhere under the working directory, at any depth.
+  expect_length(list.files(sandbox, all.files = TRUE, no.. = TRUE, recursive = TRUE), 0L)
+  expect_null(attr(res, "outputDir"))
+  expect_false(attr(res, "saveFiles"))
+  # ... and the run is still usable.
+  expect_s3_class(res, "nlmixr2SIR")
+  expect_gt(nrow(res), 0L)
+})
+
+test_that("runSIR writes only where it is told to", {
+  skip_on_cran()
+  sandbox <- withr::local_tempdir()
+  withr::local_dir(sandbox)
+  target <- file.path(sandbox, "explicit")
+
+  res <- .sirQuiet(runSIR(
+    theoFit(),
+    nSamples = 16L,
+    nResample = 8L,
+    directory = target,
+    control = runSIRControl(objfStencil = FALSE, workers = 1L)
+  ))
+
+  expect_true(dir.exists(target))
+  expect_gt(length(list.files(target)), 0L)
+  expect_equal(normalizePath(attr(res, "outputDir")), normalizePath(target))
+  # The named directory is the ONLY thing created in the working directory.
+  expect_equal(list.files(sandbox), "explicit")
+})
+
+test_that("addIterations without a directory is refused, not silently ignored", {
+  skip_on_cran()
+  expect_error(
+    .sirQuiet(runSIR(
+      theoFit(),
+      nSamples = 16L,
+      nResample = 8L,
+      control = runSIRControl(objfStencil = FALSE, workers = 1L, addIterations = TRUE)
+    )),
+    "needs the saved state"
   )
 })

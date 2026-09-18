@@ -1,6 +1,16 @@
 # Follow-up critical review of the latest updates
 
-**Date:** 2026-09-16  
+> **Status: resolved.** This review was written against `85518d1`. Its blocking
+> AGQ finding — that `agqLow`/`agqHi` were dropped from the reconstructed
+> evaluator control, so an off-centre candidate could be scored on a different
+> surface — was fixed in `f6bc538`, which replaced the hand-picked control
+> allowlist with carrying the fit's own control object wholesale. The two
+> required documentation and test changes were addressed in the same commit.
+> The findings below describe the code as it stood at `85518d1` and should not
+> be read as current.
+
+**Date:** 2026-09-16
+
 **Scope:** Commits after `origin/main` reviewed on 2026-09-15, including the
 expanded deterministic estimation-method support, the single-quantile dOFV
 noise fix, the PsN comparison updates, and the IMP-family rationale.
@@ -120,4 +130,3 @@ is technically coherent:
   as an additional design question.
 
 No changes to that issue draft are required by this review.
-

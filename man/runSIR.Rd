@@ -22,11 +22,14 @@ runSIR(
 \item{nResample}{Integer vector. Requested number of resamples per
 iteration. Must have the same length as \code{nSamples}.}
 
-\item{directory}{Output directory. If \code{NULL}, a numbered
-\verb{<fitName>_sir_<N>} directory is created.}
+\item{directory}{Output directory. Run artifacts, saved state and
+diagnostics are written here. When \code{NULL} (default), \strong{nothing is written
+to disk}: supplying a directory is what grants permission to write, so a
+run that is not given one leaves the filesystem untouched. Recovery and
+\code{addIterations} read the saved state, so both need a directory.}
 
-\item{fitName}{Optional fit label used when creating an automatic output
-directory and canonical raw-results metadata. When \code{NULL} (default), the
+\item{fitName}{Optional fit label used in canonical raw-results metadata and
+in the names of the files written under \code{directory}. When \code{NULL} (default), the
 label is derived from the expression supplied to \code{fit}.}
 
 \item{control}{A \code{\link[=runSIRControl]{runSIRControl()}} object holding everything that tunes
@@ -50,13 +53,42 @@ evaluate them with population parameters fixed, compute importance weights,
 resample, and use the empirical resampled covariance as the next proposal.
 }
 \examples{
-\dontrun{
+\donttest{
+one.cmt <- function() {
+  ini({
+    tka <- 0.45
+    tcl <- 1
+    tv <- 3.45
+    eta.ka ~ 0.6
+    add.sd <- 0.7
+  })
+  model({
+    ka <- exp(tka + eta.ka)
+    cl <- exp(tcl)
+    v <- exp(tv)
+    linCmt() ~ add(add.sd)
+  })
+}
+
+fit <- nlmixr2est::nlmixr2(
+  one.cmt, nlmixr2data::theo_sd,
+  est = "focei", control = list(print = 0L, covMethod = "r")
+)
+
+# Deliberately tiny so the example stays quick. A real run uses this
+# function's defaults: nSamples = c(1000, 1000, 1000, 2000, 2000) and
+# nResample = c(200, 400, 500, 1000, 1000).
+#
+# No `directory` is given, so nothing is written to disk. Pass one to keep
+# the run artifacts, and to make recovery and `addIterations` available.
 sir <- runSIR(
   fit,
-  nSamples = c(1000, 1000, 1000),
-  nResample = c(200, 400, 500),
-  control = runSIRControl(workers = 4, rxThreads = 2)
+  nSamples = 20L,
+  nResample = 8L,
+  control = runSIRControl(workers = 1L)
 )
+
+print(sir)
 }
 }
 \seealso{

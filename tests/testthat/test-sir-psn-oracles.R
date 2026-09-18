@@ -1,3 +1,10 @@
+# Deliberately no skip_on_cran(): every test in this file is pure arithmetic on
+# synthetic inputs -- no model fit, no fixture, no file I/O -- and the whole
+# file runs in well under a second. skip_on_cran() is for tests that are slow,
+# need external resources, or are fragile across platforms, and none of that
+# applies here. Skipping would leave CRAN running no check at all of the
+# package's mathematical core, which is the part most worth protecting.
+#
 # Numeric cross-validation against PsN, using the oracle values in PsN's own
 # unit tests. These exercise the pure maths, so they need neither a model fit
 # nor NONMEM -- which is what makes them worth porting.

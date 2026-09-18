@@ -16,7 +16,7 @@ test_that("extending a run yields a cumulative schedule everywhere", {
     nSamples = c(16L, 16L),
     nResample = c(8L, 8L),
     directory = dir,
-    control = runSIRControl(workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, workers = 1L)
   ))
   expect_equal(nrow(attr(first, "schedule")), 2L)
 
@@ -26,7 +26,7 @@ test_that("extending a run yields a cumulative schedule everywhere", {
     nSamples = 16L,
     nResample = 8L,
     directory = dir,
-    control = runSIRControl(workers = 1L, addIterations = TRUE)
+    control = runSIRControl(objfStencil = FALSE, workers = 1L, addIterations = TRUE)
   ))
 
   sched <- attr(second, "schedule")
@@ -56,7 +56,7 @@ test_that("a recover request with the extension schedule alone is refused", {
     nSamples = c(16L, 16L),
     nResample = c(8L, 8L),
     directory = dir,
-    control = runSIRControl(workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, workers = 1L)
   ))
   set.seed(42)
   .sirQuiet(runSIR(
@@ -64,7 +64,7 @@ test_that("a recover request with the extension schedule alone is refused", {
     nSamples = 16L,
     nResample = 8L,
     directory = dir,
-    control = runSIRControl(workers = 1L, addIterations = TRUE)
+    control = runSIRControl(objfStencil = FALSE, workers = 1L, addIterations = TRUE)
   ))
 
   # Before the fix the saved identity described only the one-iteration
@@ -76,7 +76,7 @@ test_that("a recover request with the extension schedule alone is refused", {
       nSamples = 16L,
       nResample = 8L,
       directory = dir,
-      control = runSIRControl(workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, workers = 1L)
     )),
     "does not match this recovery request"
   )

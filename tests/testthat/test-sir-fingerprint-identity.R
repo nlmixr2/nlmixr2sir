@@ -14,7 +14,7 @@ test_that("the fingerprint covers the resolved proposal contents", {
   skip_on_cran()
   fit <- theoFit()
   ps <- .sirParamSpace(fit)
-  ctl <- runSIRControl(workers = 1L)
+  ctl <- runSIRControl(objfStencil = FALSE, workers = 1L)
   initial <- .sirResolveInitialProposal(fit, ps, ctl)
 
   fp <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), ctl, initial = initial)
@@ -34,7 +34,7 @@ test_that("the fingerprint covers the parameter schema, not just names", {
   skip_on_cran()
   fit <- theoFit()
   ps <- .sirParamSpace(fit)
-  ctl <- runSIRControl(workers = 1L)
+  ctl <- runSIRControl(objfStencil = FALSE, workers = 1L)
   fp <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), ctl)
   expect_true("paramSchema" %in% names(fp))
 
@@ -69,7 +69,7 @@ test_that("changing a covariance file's contents changes the fingerprint", {
   }
 
   writeMat(diag(p) * 0.01)
-  ctl <- runSIRControl(covmatInput = path, workers = 1L)
+  ctl <- runSIRControl(objfStencil = FALSE, covmatInput = path, workers = 1L)
   fpA <- .sirRunFingerprint(
     fit, ps, .sirSchedule(16L, 8L), ctl,
     initial = .sirResolveInitialProposal(fit, ps, ctl)
@@ -103,7 +103,7 @@ test_that("the algorithm version is an identity field", {
   skip_on_cran()
   fit <- theoFit()
   ps <- .sirParamSpace(fit)
-  fp <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), runSIRControl(workers = 1L))
+  fp <- .sirRunFingerprint(fit, ps, .sirSchedule(16L, 8L), runSIRControl(objfStencil = FALSE, workers = 1L))
   expect_true("algoVersion" %in% names(fp))
 
   stale <- fp
@@ -118,7 +118,7 @@ test_that("recovery refuses a mutated fit covariance", {
   set.seed(81)
   .sirQuiet(runSIR(
     fit, nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   # The proposal the run would now build is different, so the saved result is
@@ -130,7 +130,7 @@ test_that("recovery refuses a mutated fit covariance", {
   err <- tryCatch(
     .sirQuiet(runSIR(
       fit, nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -144,7 +144,7 @@ test_that("recovery refuses state whose identity cannot be established", {
   set.seed(82)
   .sirQuiet(runSIR(
     fit, nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   st <- nlmixr2utils::readRunState(dir, .sirStateSchema())
@@ -154,7 +154,7 @@ test_that("recovery refuses state whose identity cannot be established", {
   err <- tryCatch(
     .sirQuiet(runSIR(
       fit, nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     error = function(e) conditionMessage(e)
   )
@@ -168,7 +168,7 @@ test_that("a dependency version change warns but does not block recovery", {
   set.seed(83)
   .sirQuiet(runSIR(
     fit, nSamples = 16L, nResample = 8L, directory = dir,
-    control = runSIRControl(recover = FALSE, workers = 1L)
+    control = runSIRControl(objfStencil = FALSE, recover = FALSE, workers = 1L)
   ))
 
   st <- nlmixr2utils::readRunState(dir, .sirStateSchema())
@@ -178,7 +178,7 @@ test_that("a dependency version change warns but does not block recovery", {
   expect_warning(
     .sirQuiet(runSIR(
       fit, nSamples = 16L, nResample = 8L, directory = dir,
-      control = runSIRControl(recover = TRUE, workers = 1L)
+      control = runSIRControl(objfStencil = FALSE, recover = TRUE, workers = 1L)
     )),
     "version"
   )
