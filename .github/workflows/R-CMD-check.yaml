@@ -45,10 +45,8 @@ jobs:
           # Same GitHub dependency set as nlmixr2est's own check: rxode2 now
           # depends on rxode2lincmt and nlmixr2est on RcppTrust, neither of which
           # is on CRAN, so without them pak cannot solve the dependencies at all.
-          # nlmixr2est comes from nlmixr2/nlmixr2est#1106 because setCov(fit,
-          # "sir") needs its setCovOptions()/setCovValue()/setCov<-; switch back
-          # to nlmixr2/nlmixr2est once that is merged. (Comments cannot go inside
-          # the block below: every line of it is read as a package.)
+          # (Comments cannot go inside the block below: every line of it is read
+          # as a package.)
           extra-packages: |
             any::rcmdcheck
             nlmixr2/lotri
@@ -56,7 +54,7 @@ jobs:
             nlmixr2/rxode2lincmt
             nlmixr2/rxode2
             nlmixr2/RcppTrust
-            nlmixr2/nlmixr2est#1106
+            nlmixr2/nlmixr2est
             nlmixr2/nlmixr2utils
             nlmixr2/nlmixr2plot
             nlmixr2/PreciseSums
