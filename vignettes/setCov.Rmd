@@ -1,0 +1,246 @@
+---
+title: "SIR as the covariance step with setCov()"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{SIR as the covariance step with setCov()}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+```
+
+## Why a SIR covariance step
+
+An `nlmixr2` fit reports parameter uncertainty from its covariance step: `fit$cov`,
+and the standard errors, %RSE and confidence intervals in `fit$parFixedDf` derived
+from it. That covariance is an asymptotic approximation. Sampling importance
+resampling (SIR) instead samples the uncertainty distribution directly, and its
+empirical covariance often describes variance components and correlated
+parameters better.
+
+`nlmixr2est::setCov()` switches a fit between covariance methods, such as `"r,s"`,
+`"r"`, `"s"` and `"analytic"`. `nlmixr2sir` adds `"sir"` to that list, so SIR can
+become *the* covariance of the fit:
+
+```r
+setCov(fit, "sir")
+```
+
+The standard errors, %RSE and intervals then come from SIR. The covariance the fit
+had before is kept in `fit$covList`, so `setCov()` can swap back at any time without
+recomputing anything.
+
+For the SIR diagnostics, plots and saved, resumable runs, use `runSIR()`; see
+`vignette("runSIR", package = "nlmixr2sir")`. A finished `runSIR()` result can be
+installed the same way, as shown [below](#installing-a-runsir-result).
+
+```{r packages, message = FALSE}
+library(nlmixr2est)
+library(nlmixr2sir)
+```
+
+## Fit the model
+
+The same one-compartment theophylline model as in the `runSIR()` vignette:
+
+```{r fit, message = FALSE, results = "hide"}
+three_eta_one_cmt <- function() {
+  ini({
+    tka <- 0.45
+    tcl <- 1.00
+    tv <- 3.45
+    eta.ka ~ 0.6
+    eta.cl ~ 0.3
+    eta.v ~ 0.1
+    add.sd <- 0.7
+  })
+  model({
+    ka <- exp(tka + eta.ka)
+    cl <- exp(tcl + eta.cl)
+    v <- exp(tv + eta.v)
+    linCmt() ~ add(add.sd)
+  })
+}
+
+fit <- nlmixr2utils::nlmixr2(
+  three_eta_one_cmt,
+  data = nlmixr2data::theo_sd,
+  est = "focei",
+  control = list(print = 0L)
+)
+```
+
+The fit has the covariance its estimation computed:
+
+```{r fit-cov}
+estCov <- fit$covMethod
+estCov
+fit$parFixedDf[, c("Estimate", "SE", "%RSE")]
+```
+
+## Install a SIR covariance
+
+`setCov(fit, "sir")` runs SIR at the fit's estimates and installs the result.
+Its options live in `sirControl()`. The defaults are the PsN schedule
+(7 000 model evaluations over five iterations), which is what you want for a real
+analysis. To keep this vignette fast, a two-iteration schedule is used here:
+
+```{r sir-control}
+ctl <- sirControl(
+  nSamples = c(100, 100),
+  nResample = c(20, 40),
+  workers = 1L
+)
+```
+
+```{r setcov-sir, message = FALSE, warning = FALSE}
+setCov(fit, "sir", control = ctl)
+```
+
+The fit now reports SIR's uncertainty, and the covariance it had before is in
+`fit$covList`:
+
+```{r after-sir}
+fit$covMethod
+names(fit$covList)
+fit$parFixedDf[, c("Estimate", "SE", "%RSE")]
+```
+
+The SIR result behind the covariance is kept on the fit as `fit$sir`. It is the
+same kind of object `runSIR()` returns, so it prints, summarises and plots the same
+way:
+
+```{r fit-sir}
+class(fit$sir)
+attr(fit$sir, "iterationSummary")[, c("iter", "nSamples", "nResample", "nResampled")]
+```
+
+## Swapping between covariances
+
+Every covariance a fit has computed stays available. Swapping back to the
+estimation's covariance, and then to SIR again, costs nothing: both come from the
+cache, so SIR is not rerun.
+
+```{r swap, message = FALSE}
+setCov(fit, estCov)
+fit$covMethod
+setCov(fit, "sir", control = ctl)
+fit$covMethod
+```
+
+## What the cache is keyed on
+
+SIR starts from a *seed* covariance. Its first proposal is built from it, so a
+different seed can give a different answer. A cached SIR covariance is therefore
+reused only when both of these are unchanged:
+
+* the `sirControl()` options that shape the result: schedule, inflation, caps,
+  recentering, Box-Cox, the random seed and so on. `workers` and `rxThreads` only
+  change how fast it runs, so they are not part of the key.
+* the seed covariance.
+
+By default the seed is the covariance installed when `setCov(fit, "sir")` is
+called. Asking for the same SIR covariance again is therefore not a new
+computation:
+
+```{r same, error = TRUE}
+setCov(fit, "sir", control = ctl)
+```
+
+Installing a different covariance changes the default seed, and the next
+`setCov(fit, "sir")` recomputes SIR from it rather than reinstalling a SIR
+covariance built from a different starting point:
+
+```{r reseed, message = FALSE, warning = FALSE}
+setCov(fit, "r,s")
+setCov(fit, "sir", control = ctl)
+fit$env$covOptions$sir$seedMethod
+```
+
+When `"sir"` is already installed and its options change, the seed it was computed
+from is used again. SIR is never seeded from its own result.
+
+Only one SIR covariance is kept at a time: computing a new one replaces the old
+one, and `fit$sir` with it.
+
+### Choosing the seed
+
+`sirControl(seedCov =)` picks the seed explicitly: the name of another covariance
+on the fit, or a named matrix.
+
+```{r seedcov, eval = FALSE}
+setCov(fit, "sir", control = sirControl(seedCov = "r,s"))
+setCov(fit, "sir", control = sirControl(seedCov = myCovarianceMatrix))
+```
+
+A matrix may be named with `fit$cov` names or SIR names. If it leaves out a block,
+such as OMEGA, that block is filled in the same way as a `runSIR()` proposal from a
+THETA-only covariance.
+
+## Installing a runSIR() result
+
+A result from `runSIR()` can be installed as the fit's covariance directly:
+
+```{r runsir-install, eval = FALSE}
+sir <- runSIR(fit, directory = "theo_sir")
+setCov(fit) <- sir
+```
+
+This checks that the run was made on this fit (same model, data and estimates),
+installs its covariance as `"sir"`, and stores the result as `fit$sir`.
+
+`runSIR()` also registers its covariance in `fit$covList` when it finishes.
+`runSIR()` seeds each iteration from its own saved state, so its result is not
+the covariance `setCov(fit, "sir")` would compute. A plain `setCov(fit, "sir")`
+therefore recomputes rather than reusing it. To swap back to the `runSIR()`
+covariance later, install the stored result again:
+
+```{r reinstall, eval = FALSE}
+setCov(fit) <- fit$sir
+```
+
+## A fit without a covariance step
+
+If the covariance step failed or was switched off, there is no covariance to seed
+SIR from:
+
+```{r nocov-fit, message = FALSE, results = "hide"}
+fit_nocov <- nlmixr2utils::nlmixr2(
+  three_eta_one_cmt,
+  data = nlmixr2data::theo_sd,
+  est = "focei",
+  control = list(print = 0L, covMethod = "")
+)
+```
+
+`setCov(fit_nocov, "sir")` then seeds SIR from an assumed relative standard error,
+30% by default, just as `runSIRControl(rseTheta = 30)` does in the
+[`runSIR()` vignette](runSIR.html#running-without-a-covariance-step). It says so,
+because that starting width is an assumption rather than an estimate. SIR's
+iterations then move the proposal towards the actual uncertainty.
+
+```{r nocov-sir, warning = FALSE}
+setCov(fit_nocov, "sir", control = ctl)
+fit_nocov$covMethod
+fit_nocov$parFixedDf[, c("Estimate", "SE", "%RSE")]
+```
+
+`sirControl(rseTheta =, rseOmega =, rseSigma =)` change the assumed widths. They
+are only used when the fit has no covariance. The RSE already states the width, so
+they cannot be combined with inflation.
+
+## When to use runSIR() instead
+
+`setCov(fit, "sir")` is for making SIR the uncertainty a fit reports. It runs in
+memory and writes nothing. Use `runSIR()` when you also want:
+
+* the output directory, with raw results and covariance files;
+* recovery of an interrupted run, and `addIterations` to extend a finished one;
+* the other proposal sources: `covmatInput` files and `rawresInput`.
+
+Either way, the result can end up as the fit's covariance.

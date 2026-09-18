@@ -90,11 +90,32 @@
 #' for candidates is on the same surface as the objective the dOFVs are
 #' measured against.
 #'
+#' The comparison holds the ETAs at the fit's own values. The objective at
+#' fixed population parameters still depends on where the inner (per-subject
+#' ETA) optimization stops: a FOCE fit on theo_sd scored the same THETA as
+#' 187.29010, 187.29018 and 187.29047 at different points of its own run, and a
+#' cold re-evaluation gives 187.29025. Comparing a cold re-evaluation with
+#' fit$objf therefore measured that inner-optimization noise (up to 1e-3 on the
+#' test fixtures) rather than whether the surface is the same. At the fit's own
+#' ETAs the objective reproduces to ~1e-13 for focei, foce, laplace, agq, fo and
+#' focep, which is the identity this check is for. The mu-referenced variants
+#' (mfocei, ifocei) reproduce less tightly even with the ETAs held -- 8e-5 on a
+#' three-ETA theo_sd model -- because their regression-updated mu thetas are
+#' part of the evaluation.
+#'
+#' The cold evaluation is still made -- it is how candidates are scored -- and
+#' centres the stencil. Its gap from fit$objf is reported as `innerNoise`, and
+#' warned about when it exceeds `stencilTolerance`: candidate dOFVs are
+#' measured against fit$objf, so a cold evaluation that lands far from it (the
+#' inner problem reaching a different ETA mode) would offset every weight.
+#'
 #' @param fit An nlmixr2 fit object.
 #' @param workers,rxThreads Passed to `sirEvalOFV()`.
 #' @param objfTolerance Non-negative scalar. The check passes when the absolute
 #'   *or* relative difference is within this tolerance.
-#' @return Invisibly, a list with `stored`, `reevaluated`, `absDiff`, `relDiff`.
+#' @return Invisibly, a list with `stored`, `reevaluated` (at the fit's
+#'   ETAs), `absDiff`, `relDiff`, `candidateCentre` (scored as candidates are),
+#'   `innerNoise` and `stencil`.
 #' @noRd
 .sirCheckObjective <- function(
   fit,
@@ -120,18 +141,39 @@
   ps <- .sirParamSpace(fit)
   mu <- .sirProposalMu(fit, ps)
   centre <- matrix(mu, nrow = 1L, dimnames = list(NULL, names(mu)))
-  reevaluated <- unname(sirEvalOFV(
+  # Scored exactly as every candidate will be, ETAs re-optimized.
+  candidateCentre <- unname(sirEvalOFV(
     fit,
     centre,
     workers = workers,
     rxThreads = rxThreads
   )[[1L]])
 
-  if (!is.finite(reevaluated)) {
+  if (!is.finite(candidateCentre)) {
     cli::cli_abort(c(
       "The objective could not be reevaluated at the fitted estimates.",
       "i" = "Every SIR candidate is scored the same way, so none would succeed."
     ))
+  }
+
+  # The identity check proper: the same objective at the fit's own ETAs. A fit
+  # without ETAs to hold (none estimated, or none reported) falls back to the
+  # candidate evaluation, which is then the only comparison available.
+  etaMat <- .sirFitEtaMat(fit)
+  reevaluated <- if (is.null(etaMat)) {
+    NA_real_
+  } else {
+    unname(sirEvalOFV(
+      fit,
+      centre,
+      workers = 1L,
+      rxThreads = rxThreads,
+      fixEtas = etaMat
+    )[[1L]])
+  }
+  heldEtas <- is.finite(reevaluated)
+  if (!heldEtas) {
+    reevaluated <- candidateCentre
   }
 
   abs_diff <- abs(reevaluated - stored)
@@ -147,7 +189,7 @@
   # exactly what a SAEM fit scored under FOCEi would show.
   stencil <- if (isTRUE(stencil)) {
     .sirObjectiveStencil(
-      fit, ps, mu, reevaluated,
+      fit, ps, mu, candidateCentre,
       workers = workers, rxThreads = rxThreads
     )
   } else {
@@ -159,6 +201,8 @@
     reevaluated = reevaluated,
     absDiff = abs_diff,
     relDiff = rel_diff,
+    candidateCentre = candidateCentre,
+    innerNoise = candidateCentre - stored,
     stencil = stencil
   )
 
@@ -170,10 +214,28 @@
     cli::cli_abort(c(
       "SIR cannot reproduce the fit's objective at its own estimates.",
       "x" = "Stored {.code fit$objf}: {format(stored, digits = 10)}",
-      "x" = "Reevaluated at the same estimates: {format(reevaluated, digits = 10)}",
+      "x" = if (heldEtas) {
+        "Reevaluated at the same estimates and ETAs: {format(reevaluated, digits = 10)}"
+      } else {
+        "Reevaluated at the same estimates: {format(reevaluated, digits = 10)}"
+      },
       "i" = "Absolute difference {format(abs_diff, digits = 4)}; tolerance {objfTolerance} (absolute).",
+      "i" = if (!heldEtas) {
+        "The fit's own ETAs could not be held for this comparison, so the ETAs were re-optimized; part of the difference may be inner-optimization noise rather than a different surface."
+      },
       "i" = "Candidates would be scored on a different surface from the dOFV reference, so the importance weights would not be meaningful.",
       "i" = "Raise {.code runSIRControl(objfTolerance =)} only if this difference is understood and acceptable."
+    ))
+  }
+
+  # Candidates are scored cold but measured against fit$objf. Small differences
+  # are inner-optimization noise; a large one means the cold inner problem
+  # lands somewhere else (another ETA mode) and would offset every dOFV.
+  if (abs(out$innerNoise) > stencilTolerance) {
+    cli::cli_warn(c(
+      "Scored the way candidates are, the fitted estimates give an objective {format(abs(out$innerNoise), digits = 4)} away from {.code fit$objf}.",
+      "i" = "Candidates re-optimize their ETAs from scratch, and here that does not return to the fit's own ETAs.",
+      "i" = "Every dOFV is measured against {.code fit$objf}, so the weights carry this offset."
     ))
   }
 

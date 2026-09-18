@@ -1,6 +1,50 @@
 # nlmixr2sir (development version)
 
+## SIR as a covariance step
+
+* **`setCov(fit, "sir")` installs a SIR covariance on the fit.** It runs SIR at
+  the fit's estimates and installs the resampled covariance through
+  `nlmixr2est::setCov()`: the standard errors change, and the previous
+  covariance stays in `fit$covList` so `setCov()` can swap between them. The
+  new `sirControl()` holds its options, with the PsN schedule and a fixed
+  random seed by default. It runs in memory and writes nothing to disk.
+
+* **The SIR covariance is cached by its options *and* its seed.** SIR is seeded
+  from the installed covariance, so `setCov(fit, "sir")` reuses a cached SIR
+  covariance only when both the `sirControl()` options and that seed are
+  unchanged. After `setCov(fit, "analytic")`, say, it recomputes. When `"sir"`
+  is installed, the seed it was computed from is used again rather than SIR's
+  own result. `sirControl(seedCov =)` picks a seed explicitly.
+
+* **A fit without a covariance can still get a SIR covariance.** The seed is
+  then an assumed 30% RSE (`sirControl(rseTheta =)`), and `setCov()` says so.
+
+* **`setCov(fit) <- runSIR(fit, ...)` installs a finished run**, after checking
+  that it was run on that fit. Every route keeps the SIR result on the fit as
+  `fit$sir`, and `runSIR()` records the options and seed of the covariance it
+  registers.
+
+* The SIR covariance is named with nlmixr2est's full-shape names (`om.*`,
+  `cov.*`), so `runSIR()` now registers it for fits whose `fit$cov` has no
+  OMEGA block, or no covariance at all, which it previously skipped.
+
 ## Diagnostics and provenance
+
+* **The objective preflight compares at the fit's own ETAs.** The objective at
+  fixed population parameters still depends on where the per-subject ETA
+  optimization stops, so a cold re-evaluation differs from `fit$objf` by that
+  inner-optimization noise: 1.5e-4 for FOCE and Laplace fits on theo_sd, and
+  1.1e-3 on a three-ETA FOCEi model. That is above the 1e-4 tolerance, so
+  `runSIR()` refused fits whose surface was in fact reproduced exactly,
+  including the one in the vignette. The identity check now holds the ETAs at
+  the fit's own values (`fit$etaMat`, so IOV is included). There the objective
+  agrees to about 1e-13 for focei, foce, laplace, agq, fo and focep. The
+  mu-referenced variants agree to about 1e-4, because their regression-updated
+  mu thetas are part of the evaluation. The check still refuses a genuinely
+  different surface. The candidate-style evaluation is still made. It centres
+  the stencil, its gap from `fit$objf` is reported as `innerNoise`, and a gap
+  larger than `objfStencilTolerance` gives a warning. When the fit's ETAs
+  cannot be held, the abort message says so.
 
 * **Every iteration now reports importance-weight degeneracy.** Effective
   sample size (Kish, `1 / sum(p^2)`), its fraction of the usable samples, the

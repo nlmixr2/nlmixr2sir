@@ -10,6 +10,14 @@
 # The preflight settles it empirically, per run, by re-evaluating the fitted
 # centre and comparing with the stored objective before any sampling happens.
 
+# A stand-in evaluator that scores every point `delta` off the stored objective,
+# held ETAs or not: a genuine mismatch on every platform.
+.sirOffsetEval <- function(delta) {
+  function(fit, paramSamples, workers = NULL, rxThreads = NULL, fixEtas = NULL) {
+    rep(fit$objf + delta, nrow(paramSamples))
+  }
+}
+
 test_that("the preflight accepts a fit whose centre reproduces its objective", {
   skip_on_cran()
   fit <- theoFit()
@@ -20,23 +28,100 @@ test_that("the preflight returns the stored and reevaluated objectives", {
   skip_on_cran()
   fit <- theoFit()
   res <- .sirCheckObjective(fit, workers = 1L)
-  expect_named(res, c("stored", "reevaluated", "absDiff", "relDiff", "stencil"))
+  expect_named(
+    res,
+    c("stored", "reevaluated", "absDiff", "relDiff", "candidateCentre",
+      "innerNoise", "stencil")
+  )
   expect_equal(res$stored, fit$objf, tolerance = 1e-12)
   expect_lt(res$absDiff, 1e-3)
+  expect_equal(res$innerNoise, res$candidateCentre - res$stored)
+})
+
+test_that("the identity check holds the fit's ETAs, so inner-optimization noise does not fail it", {
+  skip_on_cran()
+  # A FOCE fit whose ETAs re-optimize to a slightly different objective at the
+  # same THETA: 1.5e-4 away on theo_sd, above the 1e-4 tolerance. At the fit's
+  # own ETAs the objective is the stored one to rounding.
+  fit <- suppressMessages(suppressWarnings(nlmixr2est::nlmixr2(
+    theoOneCmt, nlmixr2data::theo_sd, est = "foce",
+    control = list(print = 0L, covMethod = "", calcTables = FALSE)
+  )))
+  r <- .sirCheckObjective(fit, workers = 1L, stencil = FALSE)
+  expect_lt(r$absDiff, 1e-8)
+  expect_true(is.finite(r$innerNoise))
+})
+
+test_that("a candidate-style centre far from fit$objf warns", {
+  skip_on_cran()
+  # The identity holds at the fit's own ETAs, but re-optimized ETAs land 5 OFV
+  # units away: every candidate dOFV would carry that offset, so say so.
+  fit <- theoFit()
+  local_mocked_bindings(
+    sirEvalOFV = function(fit, paramSamples, workers = NULL, rxThreads = NULL,
+                          fixEtas = NULL) {
+      if (is.null(fixEtas)) fit$objf + 5 else fit$objf
+    }
+  )
+  expect_warning(
+    r <- .sirCheckObjective(fit, workers = 1L, stencil = FALSE),
+    "away from"
+  )
+  expect_equal(r$innerNoise, 5)
+  expect_lt(r$absDiff, 1e-12)
+
+  # Within the stencil tolerance it is noise, and passes quietly.
+  local_mocked_bindings(
+    sirEvalOFV = function(fit, paramSamples, workers = NULL, rxThreads = NULL,
+                          fixEtas = NULL) {
+      if (is.null(fixEtas)) fit$objf + 1e-3 else fit$objf
+    }
+  )
+  expect_no_warning(.sirCheckObjective(fit, workers = 1L, stencil = FALSE))
+})
+
+test_that("the abort says so when the fit's ETAs could not be held", {
+  skip_on_cran()
+  fit <- theoFit()
+  local_mocked_bindings(
+    .sirFitEtaMat = function(fit) NULL,
+    sirEvalOFV = .sirOffsetEval(1e-3)
+  )
+  err <- tryCatch(
+    .sirCheckObjective(fit, workers = 1L, stencil = FALSE),
+    error = function(e) conditionMessage(e)
+  )
+  expect_match(err, "could not be held", fixed = TRUE)
+  expect_false(grepl("estimates and ETAs", err, fixed = TRUE))
+})
+
+test_that("holding the ETAs still refuses a different surface", {
+  skip_on_cran()
+  # FO scored as FOCEi at the FO fit's own ETAs is a different objective, and
+  # the check must say so -- holding the ETAs must not make it pass trivially.
+  fitFo <- theoFitFo()
+  local_mocked_bindings(.sirEvalMethod = function(fit) "focei")
+  expect_error(
+    .sirCheckObjective(fitFo, workers = 1L, stencil = FALSE),
+    "cannot reproduce"
+  )
 })
 
 test_that("the preflight aborts when the centre does not reproduce the objective", {
   skip_on_cran()
   fit <- theoFit()
-  # A tolerance tight enough that even the genuine numerical difference between
-  # the stored and reevaluated objective fails it. This is the mismatch path:
-  # the message must name both values so the user can judge the gap.
+  # An evaluator 1e-3 off the stored objective. This is the mismatch path: the
+  # message must name both values so the user can judge the gap. (This used to
+  # rely on objfTolerance = 0 and a nonzero numerical difference, but at the
+  # fit's own ETAs the objective reproduces exactly on some platforms --
+  # Windows among them -- so there was no difference to find.)
+  local_mocked_bindings(sirEvalOFV = .sirOffsetEval(1e-3))
   expect_error(
-    .sirCheckObjective(fit, workers = 1L, objfTolerance = 0),
+    .sirCheckObjective(fit, workers = 1L),
     "objective"
   )
   err <- tryCatch(
-    .sirCheckObjective(fit, workers = 1L, objfTolerance = 0),
+    .sirCheckObjective(fit, workers = 1L),
     error = function(e) conditionMessage(e)
   )
   expect_match(err, format(fit$objf, digits = 10), fixed = TRUE)
@@ -58,17 +143,14 @@ test_that("runSIR runs the objective preflight before sampling", {
   skip_on_cran()
   fit <- theoFit()
   dir <- withr::local_tempdir()
+  local_mocked_bindings(sirEvalOFV = .sirOffsetEval(1e-3))
   expect_error(
     .sirQuiet(runSIR(
       fit,
       nSamples = 16L,
       nResample = 8L,
       directory = dir,
-      control = runSIRControl(
-        recover = FALSE,
-        workers = 1L,
-        objfTolerance = 0
-      )
+      control = runSIRControl(recover = FALSE, workers = 1L)
     )),
     "objective"
   )
@@ -117,8 +199,9 @@ test_that("the preflight tolerance is absolute, not relative", {
   # A relative rule would wave through a large absolute gap on a large
   # objective. The weights depend on differences in OFV, so only the absolute
   # scale is meaningful.
+  local_mocked_bindings(sirEvalOFV = .sirOffsetEval(1e-3))
   expect_error(
-    .sirCheckObjective(fit, workers = 1L, objfTolerance = 0, stencil = FALSE),
+    .sirCheckObjective(fit, workers = 1L, stencil = FALSE),
     "absolute"
   )
 })
@@ -181,6 +264,10 @@ test_that("the evaluator reproduces each deterministic method's objective", {
       control = list(print = 0L, covMethod = "", calcTables = FALSE)
     )))
     .sirExpectReproduces(fit, e)
+    # At the fit's own ETAs these reproduce to rounding, far inside 1e-4, so a
+    # drift towards the tolerance shows up here first.
+    r <- nlmixr2sir:::.sirCheckObjective(fit, workers = 1L, stencil = FALSE)
+    expect_lt(r$absDiff, 1e-8)
   }
 })
 
