@@ -72,6 +72,18 @@ test_that("a candidate-style centre far from fit$objf warns", {
   expect_no_warning(.sirCheckObjective(fit, workers = 1L, stencil = FALSE))
 })
 
+test_that("the abort says so when the fit's ETAs could not be held", {
+  skip_on_cran()
+  fit <- theoFit()
+  local_mocked_bindings(.sirFitEtaMat = function(fit) NULL)
+  err <- tryCatch(
+    .sirCheckObjective(fit, workers = 1L, stencil = FALSE, objfTolerance = 0),
+    error = function(e) conditionMessage(e)
+  )
+  expect_match(err, "could not be held", fixed = TRUE)
+  expect_false(grepl("estimates and ETAs", err, fixed = TRUE))
+})
+
 test_that("holding the ETAs still refuses a different surface", {
   skip_on_cran()
   # FO scored as FOCEi at the FO fit's own ETAs is a different objective, and

@@ -219,6 +219,13 @@ test_that("a fit without a covariance is seeded from the RSE default", {
   expect_equal(fit$env$covOptions$sir$rseTheta, 30)
   expect_identical(attr(fit$sir, "proposalSource"), "rse")
 
+  # With that SIR installed, new options recompute from the RSE seed again --
+  # never from the SIR covariance now sitting in fit$cov.
+  .sirQuiet(nlmixr2est::setCov(fit, "sir", control = .smallSir(seed = 7L)))
+  expect_identical(attr(fit$sir, "proposalSource"), "rse")
+  expect_identical(fit$env$covOptions$sir$seedMethod, "rse")
+  expect_equal(fit$env$covOptions$sir$seed, 7L)
+
   fit2 <- .freshTheoFit(covMethod = "")
   expect_error(
     nlmixr2est::setCov(fit2, "sir", control = .smallSir(thetaInflation = 2)),
