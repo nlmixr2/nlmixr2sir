@@ -43,12 +43,20 @@
 #' @param objfStencilTolerance Non-negative number. How much a probe may lower
 #'   the objective before the run is refused. Smaller decreases warn instead,
 #'   since a fit that stopped just short of convergence is common and harmless.
-#' @param objfTolerance Non-negative number. Before sampling, SIR re-evaluates
-#'   the objective at the fit's own estimates and compares it with
-#'   `fit$objf`; the run aborts unless the absolute or relative difference is
-#'   within this tolerance. It is the per-run evidence that candidates are
-#'   scored on the same surface the dOFVs are measured against. Raise it only
-#'   when the difference is understood.
+#' @param objfTolerance Non-negative number, default `1e-2`. Before sampling,
+#'   SIR re-evaluates the objective at the fit's own estimates and compares it
+#'   with `fit$objf`; the run aborts unless the absolute difference is within
+#'   this tolerance, and warns above `1e-3`. It is the per-run evidence that
+#'   candidates are scored on the same surface the dOFVs are measured against.
+#'
+#'   The default is set from what a gap does rather than from how big it
+#'   "should" be: a dOFV error of `d` moves an importance weight by
+#'   `exp(-d/2)`, so `1e-2` costs under 0.5% against dOFV of order 1 to 10,
+#'   while still catching a genuinely different surface by more than two orders
+#'   of magnitude. Ordinary reproduction gaps are inner-solve convergence
+#'   slack, which only `sigdig` predicts; refitting at a higher `sigdig`
+#'   shrinks a gap roughly 3-4 fold per digit, and is the remedy to prefer over
+#'   raising this.
 #' @param recover Logical. If `TRUE` and the output directory holds
 #'   `sir_state.rds`, resume from the last completed iteration when possible.
 #' @param addIterations Logical. If `TRUE`, append the supplied schedule after
@@ -108,7 +116,7 @@ runSIRControl <- function(
   recover = TRUE,
   addIterations = FALSE,
   saveFiles = TRUE,
-  objfTolerance = 1e-4,
+  objfTolerance = 1e-2,
   objfStencil = TRUE,
   objfStencilTolerance = 1,
   omegaFallback = c("cov", "wishart"),

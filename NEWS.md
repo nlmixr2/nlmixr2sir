@@ -1,5 +1,43 @@
 # nlmixr2sir (development version)
 
+## Objective preflight
+
+* **`objfTolerance` now defaults to `1e-2`, not `1e-4`, and warns above
+  `1e-3`.** The old default did not work: the package's own vignette and its
+  own `runSIR()` example both aborted under it, which is to say `runSIR()` did
+  not run on ordinary models.
+
+  The gap the preflight measures — between `fit$objf` and a fresh re-evaluation
+  at the same estimates — is inner-solve convergence slack. `fit$objf` comes
+  from the final outer iteration's inner solve with warm-started etas; the
+  check re-solves the inner problem from scratch. Measured across models it
+  spans roughly `1e-6` to `1.2e-3`, so `1e-4` sat in the middle of its own
+  target's range and fired erratically: `theoFit()` reproduces to `8.2e-5` and
+  passed, while a near-identical one-eta fit reproduced to `1.107e-4` and
+  aborted.
+
+  The new default is set from what a gap *does* rather than from how big it
+  ought to be. A dOFV error of `d` moves an importance weight by `exp(-d/2)`,
+  so `1e-2` costs under 0.5% against dOFV of order 1 to 10. What the check
+  exists for is untouched: a SAEM fit scored under FOCEi is 2.69 OFV units out
+  on `theo_sd`, and the dropped-`agqLow` defect was 6490 — both still refused,
+  by more than two orders of magnitude.
+
+  No formula is used. Only `sigdig` predicts the gap (about 3–4 fold per
+  digit). Eta count does **not** — it is flat from 1 to 12 etas, and a
+  three-eta `theo_sd` fit reproduces 27× worse than a synthetic twelve-eta one
+  — and neither does design collinearity. Both were tested and falsified, and
+  the residual variation is model-specific, so a formula would give false
+  confidence.
+
+  Both messages now name `sigdig` as the remedy, since raising `objfTolerance`
+  hides a gap rather than reducing it.
+
+  Note that `objfTolerance` also gates the stencil's "not quite a local
+  optimum" warning, which is therefore now reported at the same coarser scale.
+  That is deliberate: both ask whether an OFV difference of a given size is
+  worth mentioning, and the answer comes from the same weight argument.
+
 ## Estimation methods
 
 * **`runSIR()` now accepts `imp`, `impmap` and `qrpem` fits.** These were

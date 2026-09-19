@@ -101,6 +101,35 @@
   invisible(est)
 }
 
+# Reproduction gaps at or below this are not reported at all; above it, and up
+# to objfTolerance, the run proceeds with a warning.
+#
+# Both numbers are set from what a gap DOES, not from any model of how big it
+# should be. A dOFV error of d moves an importance weight by exp(-d/2): 1e-3
+# moves it 0.05%, 1e-2 moves it 0.5%, against dOFV of order 1 to 10. So 1e-2 is
+# where the error starts to be worth refusing over, and 1e-3 is where it starts
+# to be worth mentioning.
+#
+# Why not a tighter number. The gap is inner-solve convergence slack: fit$objf
+# comes from the final outer iteration's inner solve with warm-started etas,
+# and this check re-solves the inner problem fresh. Measured across models it
+# spans ~1e-6 to 1.2e-3, so the old 1e-4 default sat in the MIDDLE of the
+# range and fired erratically -- theoFit() reproduces to 8.2e-5 and passed
+# while a near-identical one-eta fit reproduced to 1.107e-4 and aborted. The
+# package's own vignette and runSIR() example both aborted under it.
+#
+# Why not a formula. Only sigdig predicts the gap (~3.4x per digit). Eta count
+# does NOT -- measured flat from 1 to 12 etas, and a three-eta theo_sd fit is
+# 27x worse than a synthetic twelve-eta one -- and neither does design
+# collinearity. Both were tested and falsified; the residual variation is
+# model-specific and unexplained, so a formula would give false confidence.
+#
+# What the check is FOR is unaffected: it exists to catch a candidate scored on
+# a different SURFACE, and the two documented cases are a SAEM fit at 2.69 OFV
+# units and the dropped-agqLow defect at 6490. Both clear 1e-2 by more than two
+# orders of magnitude.
+.sirObjfWarnTolerance <- 1e-3
+
 #' Verify the candidate evaluator reproduces the fit's objective
 #'
 #' Re-evaluates the OFV at the fitted centre and compares it with the stored
@@ -119,7 +148,7 @@
   fit,
   workers = NULL,
   rxThreads = NULL,
-  objfTolerance = 1e-4,
+  objfTolerance = 1e-2,
   stencil = TRUE,
   stencilTolerance = 1
 ) {
@@ -192,7 +221,21 @@
       "x" = "Reevaluated at the same estimates: {format(reevaluated, digits = 10)}",
       "i" = "Absolute difference {format(abs_diff, digits = 4)}; tolerance {objfTolerance} (absolute).",
       "i" = "Candidates would be scored on a different surface from the dOFV reference, so the importance weights would not be meaningful.",
-      "i" = "Raise {.code runSIRControl(objfTolerance =)} only if this difference is understood and acceptable."
+      "i" = "If the fit and the evaluator are on the same surface, this is convergence slack: refit with a higher {.code sigdig} (each additional digit has been measured to shrink the gap about 3-4 fold).",
+      "i" = "Raise {.code runSIRControl(objfTolerance =)} only if this difference is understood and acceptable; it hides the gap rather than reducing it."
+    ))
+  }
+
+  # Inside tolerance but worth saying out loud. A gap of this size does not
+  # threaten the result -- it moves a weight by well under a percent -- but it
+  # is the signal that the fit is closer to the threshold than most, and the
+  # remedy is cheap.
+  if (abs_diff > .sirObjfWarnTolerance) {
+    cli::cli_warn(c(
+      "The fit reproduces its own objective to {format(abs_diff, digits = 4)}, which is larger than usual.",
+      "i" = "Stored {.code fit$objf}: {format(stored, digits = 10)}; reevaluated: {format(reevaluated, digits = 10)}.",
+      "i" = "Within {.code objfTolerance} ({objfTolerance}), so the run continues, and a gap this size moves an importance weight by well under one percent.",
+      "i" = "This is inner-solve convergence slack. Refitting with a higher {.code sigdig} shrinks it about 3-4 fold per digit if you want it smaller."
     ))
   }
 

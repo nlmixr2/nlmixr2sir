@@ -17,7 +17,7 @@ runSIRControl(
   recover = TRUE,
   addIterations = FALSE,
   saveFiles = TRUE,
-  objfTolerance = 1e-04,
+  objfTolerance = 0.01,
   objfStencil = TRUE,
   objfStencilTolerance = 1,
   omegaFallback = c("cov", "wishart"),
@@ -78,12 +78,20 @@ creating no directory; the result is returned as usual. Recovery,
 state, so they are unavailable when this is \code{FALSE} -- seed a run with
 \code{set.seed()} beforehand to reproduce it.}
 
-\item{objfTolerance}{Non-negative number. Before sampling, SIR re-evaluates
-the objective at the fit's own estimates and compares it with
-\code{fit$objf}; the run aborts unless the absolute or relative difference is
-within this tolerance. It is the per-run evidence that candidates are
-scored on the same surface the dOFVs are measured against. Raise it only
-when the difference is understood.}
+\item{objfTolerance}{Non-negative number, default \code{1e-2}. Before sampling,
+SIR re-evaluates the objective at the fit's own estimates and compares it
+with \code{fit$objf}; the run aborts unless the absolute difference is within
+this tolerance, and warns above \code{1e-3}. It is the per-run evidence that
+candidates are scored on the same surface the dOFVs are measured against.
+
+The default is set from what a gap does rather than from how big it
+"should" be: a dOFV error of \code{d} moves an importance weight by
+\code{exp(-d/2)}, so \code{1e-2} costs under 0.5\% against dOFV of order 1 to 10,
+while still catching a genuinely different surface by more than two orders
+of magnitude. Ordinary reproduction gaps are inner-solve convergence
+slack, which only \code{sigdig} predicts; refitting at a higher \code{sigdig}
+shrinks a gap roughly 3-4 fold per digit, and is the remedy to prefer over
+raising this.}
 
 \item{objfStencil}{Logical. If \code{TRUE} (default) the objective preflight also
 evaluates small perturbations either side of every parameter and requires
