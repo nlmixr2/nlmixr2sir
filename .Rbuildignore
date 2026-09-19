@@ -6,4 +6,7 @@
 ^\.claude$
 ^PLAN\.md$
 ^P[0-9]+-PROGRESS\.md$
+^P[0-9]+-PLAN\.md$
+^P[0-9]+-experiment-.*\.R$
+^blog-post-.*\.md$
 ^docs$
