@@ -225,7 +225,7 @@ cannot express that asymmetry, which is a large part of why SIR is run at all.
 | RSE / correlation plot | `plot(type = "rsecor")` | supported |
 | `empirical_statistics()` output | `sirSummary()` | supported |
 | `<model>_sir.cov` | `<fitName>_sir.cov` | supported |
-| estimation methods accepted | the deterministic ladder (`fo`/`foi`/`foce`/`focei`/`focep`/`laplace`/`agq` + `m…`/`i…`) | deliberate difference — PsN also accepts IMP/IMPMAP, and warns-but-continues on others; see below |
+| estimation methods accepted | the deterministic ladder (`fo`/`foi`/`foce`/`focei`/`focep`/`laplace`/`agq` + `m…`/`i…`) and the importance-sampling family (`imp`/`impmap`/`qrpem`) | matches PsN on IMP/IMPMAP; still a deliberate difference on the rest, where PsN warns and continues; see below |
 | draw-attempt budget | `10 x nSamples` | deliberate difference — PsN uses `2000 x nSamples`; see below |
 | OMEGA/SIGMA block adjustment after prolonged rejection | — | deliberate difference — not implemented; see below |
 | `-auto_rawres` | — | not implemented |
@@ -274,11 +274,12 @@ two disagree by the Jacobian of that reparameterization. Two models that are
 reparameterizations of each other can give different SIR intervals. That is a
 property of the estimand, not a defect.
 
-**Only deterministic fits are accepted, and the refusal is an error.**
+**Only deterministic objectives are accepted, and the refusal is an error.**
 `runSIR()` accepts the conditional-estimation ladder — `fo`, `foi`, `foce`,
 `focei`, `focep`, `laplace`, `agq`, and their `m…`/`i…` mu-referencing
-variants. Candidates are scored by re-evaluating the fit's own method at fixed
-population parameters, carrying the fit's own control settings, so the
+variants — plus the importance-sampling family `imp`, `impmap` and `qrpem`.
+Candidates on the ladder are scored by re-evaluating the fit's own method at
+fixed population parameters, carrying the fit's own control settings, so the
 candidate surface and the `fit$objf` reference are the same function.
 
 A stochastic or non-FOCEi-family fit is refused. On a SAEM fit of `theo_sd` the
@@ -288,11 +289,35 @@ function, not noise. It does not cancel: under `recenter = TRUE` the centre
 scores dOFV ≈ −2.69 and the run "finds" a better optimum made entirely of the
 offset. The preflight rejects such a fit before any directory is created.
 
-`imp`/`impmap`/`qrpem` are refused for a different reason: nlmixr2 exposes no
-expectation-only mode (the equivalent of PsN's `EONLY=1`), so there is no way
-to evaluate them at fixed parameters at all. `npag`/`npb` do not have a normal
-`Omega` to propose from, and the variational methods optimise a bound rather
-than the marginal likelihood.
+`imp`/`impmap`/`qrpem` are accepted, but on a different basis from the ladder,
+and it is worth being precise about why. Their candidates are **not** scored by
+re-running importance sampling. nlmixr2est recomputes the objective of every
+imp-family fit as a nested FOCEi evaluation at the converged estimates, because
+the in-C++ finalize leaves the eta-Hessian without its data term — so `fit$objf`
+on such a fit has never been the importance-sampling objective. (That one lives
+in `fit$env$impObj`, and `runSIR()` never reads it.) SIR therefore scores these
+candidates directly as FOCEi, matching the calculation that produced the
+reference. Measured on `theo_sd` at nlmixr2est 7.1.0, the two routes agree
+bit-for-bit — 193.6046289649 with one random effect, 116.8319956005 with three
+— and scoring as FOCEi is 6–9× faster per candidate, because it skips an E-step
+whose result is discarded.
+
+`runSIR()` warns once per run when it takes this route, naming both the method
+you fitted with and the method it will score with, and the run fingerprint
+records `evalMethod` (what the objectives were produced with) alongside
+`estMethod` (what the fit was run with).
+
+Verified against nlmixr2est 7.1.0. No minimum version is declared for it,
+because SIR never uses the expectation-only evaluation path that 7.1.0 added —
+what it relies on is the objective recompute, which is older. If a version ever
+published the raw importance-sampling objective as `fit$objf` instead, the
+per-run preflight would catch it: the FOCEi re-evaluation at the centre would
+miss by about 19.96 units on a one-eta model, thousands of times the tolerance,
+and the run would be refused before any sampling.
+
+`npag`/`npb` do not have a normal `Omega` to propose from, and the variational
+methods optimise a bound rather than the marginal likelihood. `saem` is refused
+as above.
 
 PsN's equivalent check lives in `set_maxeval_zero()`, which sets `MAXEVAL=0`
 for classical methods and `EONLY=1` for `IMP`/`IMPMAP`, but for anything else —

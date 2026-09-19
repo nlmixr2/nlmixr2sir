@@ -1,5 +1,47 @@
 # nlmixr2sir (development version)
 
+## Estimation methods
+
+* **`runSIR()` now accepts `imp`, `impmap` and `qrpem` fits.** These were
+  previously refused because nlmixr2 had no expectation-only evaluation mode.
+  nlmixr2est 7.1.0 adds one, but the re-admission does not rest on it.
+
+  It rests on a different fact: nlmixr2est recomputes the objective of every
+  imp-family fit as a nested FOCEi evaluation at the converged estimates,
+  because the in-C++ finalize leaves the eta-Hessian without its data term. So
+  `fit$objf` on such a fit has never been the importance-sampling objective —
+  that one is `fit$env$impObj`, which `runSIR()` never reads. Candidates are
+  therefore scored directly as FOCEi, reproducing the calculation that produced
+  the reference rather than re-running importance sampling to arrive at the
+  same number.
+
+  Measured on `theo_sd`, the two routes agree bit-for-bit — 193.6046289649 with
+  one random effect, 116.8319956005 with three — and scoring as FOCEi is 6–9×
+  faster per candidate. The one-eta case is the demanding one: it is where the
+  Hessian defect bites, and the raw objective is ~19.96 units low there, so
+  reproducing 193.60 rather than 173.63 is the evidence SIR is on the
+  recomputed surface. Verified against nlmixr2est 7.1.0; no new minimum version
+  is declared, because SIR never uses the expectation-only path 7.1.0 added, and
+  the per-run objective preflight fails closed if the recompute is ever absent.
+
+  This is a deliberate, documented exception to the rule that `est` selects the
+  objective. It is confined to this family, and `saem`, `npag`/`npb` and the
+  variational methods remain refused.
+
+  **`runSIR()` warns once per run when it does this.** A user who chose
+  `impmap` deliberately is owed the fact that the numbers came from FOCEi. The
+  warning names both methods, says why, and says it is expected. It is raised
+  by the preflight, so it fires once, not once per candidate.
+
+* **The run fingerprint now records `evalMethod`** alongside `estMethod`: the
+  method the objectives were actually produced with, as opposed to the method
+  the fit was run with. On an imp-family run those differ, and `estMethod`
+  alone would describe the run as `impmap` when every objective in it came from
+  FOCEi. It is an identity field, so a state file written under a different
+  scoring mapping is refused on recovery rather than silently reused. State
+  files written before this change lack the field and will be refused on
+  recovery for that reason; re-run rather than recover.
+
 ## Diagnostics and provenance
 
 * **Every iteration now reports importance-weight degeneracy.** Effective

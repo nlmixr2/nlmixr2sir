@@ -141,6 +141,15 @@
     # the latter is a per-row vector, which would land in the fingerprint and
     # the manifest as 132 repeats of the method name.
     estMethod = .sirFitEst(fit),
+    # The method the NUMBERS came from, which is not always the method the fit
+    # was run with: the imp family is scored as FOCEi (see .sirEvalMethod()).
+    # estMethod alone would describe such a run as "impmap" when every objective
+    # in it was produced by FOCEi.
+    #
+    # Derived from estMethod today, so it adds no discriminating power right
+    # now. It is an identity field anyway, so that a state file written under a
+    # different mapping is refused rather than silently reused.
+    evalMethod = .sirEvalMethod(fit),
     schedule = paste0(
       paste(as.integer(schedule$nSamples), collapse = ","),
       "/",
@@ -168,8 +177,8 @@
 # invalidate a result, and the objective preflight catches it if it did.
 .sirIdentityFields <- c(
   "stateVersion", "algoVersion", "model", "dataRows", "data", "params",
-  "paramSchema", "proposal", "estimates", "objf", "estMethod", "schedule",
-  "controls"
+  "paramSchema", "proposal", "estimates", "objf", "estMethod", "evalMethod",
+  "schedule", "controls"
 )
 
 # Returns the names of fields that disagree. `ignore` exempts fields that are

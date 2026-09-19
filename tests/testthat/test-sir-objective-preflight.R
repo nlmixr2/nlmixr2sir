@@ -165,7 +165,12 @@ test_that("unsupported methods are excluded from the allowlist", {
   supported <- nlmixr2sir:::.sirSupportedEstimationMethods
   # Stochastic and non-FOCEi-family methods stay out: their objectives are not
   # reproduced by this evaluator, which is the whole point of the allowlist.
-  for (e in c("saem", "imp", "impmap", "qrpem", "npag", "npb", "vae", "emvi")) {
+  #
+  # imp/impmap/qrpem are NOT in this list any more. They were admitted in P7,
+  # not because the evaluator learned to reproduce an importance-sampling
+  # objective, but because nlmixr2est recomputes theirs as FOCEi. The
+  # distinction, and the evidence, are in test-sir-imp-family.R.
+  for (e in c("saem", "npag", "npb", "vae", "emvi")) {
     expect_false(e %in% supported, info = e)
   }
 })
