@@ -1,5 +1,33 @@
 # nlmixr2sir (development version)
 
+## Using a SIR covariance on the fit
+
+* **SIR is now registered as a covariance method for `nlmixr2est::setCov()`.**
+  `setCov(fit, "sir")` switches a fit's reported uncertainty — standard errors,
+  RSEs, print output — from the asymptotic covariance to the empirical one SIR
+  produced, which is the thing SIR exists to improve on.
+  `setCov(fit, fit$covMethod)` puts the original back, since `setCov()` keeps
+  the previous covariance in `fit$covList`.
+
+  Most of this already worked: `runSIR()` has always registered its covariance
+  under `"sir"` in `fit$covList`, and `setCov()` installs a cached covariance
+  before it dispatches. What was missing was discoverability and a decent
+  refusal. `"sir"` did not appear in `nlmixr2est::setCovAllMethods()`, and on a
+  fit that had never been through `runSIR()` the error read "covariance method
+  'sir' not supported" — which was wrong. It is supported; there was simply
+  nothing to install.
+
+  `setCov.sir()` deliberately does not run SIR. A SIR run takes minutes to
+  hours, needs a sampling schedule and somewhere to write, and produces
+  convergence and weight diagnostics that installing a covariance would
+  discard, so a fit with no SIR covariance is refused with a pointer to
+  `runSIR()`.
+
+  Requires nlmixr2est >= 7.1.0 for the generic. `DESCRIPTION` is not bumped:
+  the rest of the package works on 7.0.x, where installing an
+  already-registered SIR covariance still works because that path does not
+  dispatch.
+
 ## Objective preflight
 
 * **`objfTolerance` now defaults to `1e-2`, not `1e-4`, and warns above

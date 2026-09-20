@@ -79,3 +79,64 @@
   }
   .sirRegisterCovList(fit, label, .sirCovAsFitCov(fit, covMat, ps))
 }
+
+#' Use a SIR covariance as a fit's covariance
+#'
+#' Registers SIR as a covariance method for [nlmixr2est::setCov()], so that
+#' `setCov(fit, "sir")` switches a fit's reported uncertainty -- its standard
+#' errors, RSEs and print output -- from the asymptotic covariance to the
+#' empirical one SIR produced. This is the point of running SIR in the first
+#' place: the asymptotic covariance is the thing SIR exists to improve on.
+#'
+#' [runSIR()] registers its covariance on the fit automatically when it
+#' finishes, so the usual sequence is
+#'
+#' ```
+#' sir <- runSIR(fit, ...)
+#' nlmixr2est::setCov(fit, "sir")
+#' ```
+#'
+#' and `nlmixr2est::setCov(fit, fit$covMethod)` puts the original back, since
+#' `setCov()` keeps the previous covariance in `fit$covList`.
+#'
+#' This method does **not** run SIR. Computing a SIR covariance means a full
+#' SIR run -- minutes to hours, needing a sampling schedule and somewhere to
+#' write -- and it produces convergence and weight diagnostics that a
+#' covariance setter would throw away. A setter should not silently start that,
+#' so a fit with no SIR covariance is refused with a pointer to [runSIR()],
+#' which is what nlmixr2est asks a method that cannot compute its covariance to
+#' do.
+#'
+#' Requires nlmixr2est >= 7.1.0, which is where `setCov()` became a generic.
+#' On earlier versions `setCov(fit, "sir")` still installs a covariance
+#' [runSIR()] has already registered, because that path does not dispatch, but
+#' the method is neither listed by `nlmixr2est::setCovAllMethods()` nor able to
+#' produce this message.
+#'
+#' @param fit An nlmixr2 fit that has been through [runSIR()].
+#' @param method Covariance method, supplied by [nlmixr2est::setCov()].
+#' @param ... Unused; present for consistency with the generic.
+#' @return The SIR covariance, named and ordered like `fit$cov`, for
+#'   `setCov()` to install.
+#' @exportS3Method nlmixr2est::setCov
+setCov.sir <- function(fit, method, ...) {
+  # Normally unreachable when a covariance IS registered: setCov() installs a
+  # cached one before it dispatches. Looked up here anyway so the method is
+  # correct on its own terms rather than only in combination with that path.
+  env <- tryCatch(fit$env, error = function(e) NULL)
+  covMat <- if (is.environment(env) &&
+                exists("covList", envir = env, inherits = FALSE)) {
+    get("covList", envir = env)[["sir"]]
+  } else {
+    NULL
+  }
+
+  if (is.null(covMat)) {
+    cli::cli_abort(c(
+      "This fit has no SIR covariance to install.",
+      "i" = "Run {.run runSIR(fit)} first; it registers its covariance on the fit when it finishes.",
+      "i" = "{.fn setCov} does not run SIR itself: a SIR run needs a sampling schedule and produces convergence and weight diagnostics that installing a covariance would discard."
+    ), call. = NULL)
+  }
+  covMat
+}

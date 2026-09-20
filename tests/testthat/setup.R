@@ -270,3 +270,15 @@ impmapFitThreeEta <- .sirLazy(suppressMessages(suppressWarnings(
     control = list(print = 0L, covMethod = "")
   )
 )))
+
+# A separate theoFit() for the setCov tests. setCov() mutates the fit's
+# environment in place, so a test that switches the installed covariance would
+# otherwise leave every later test looking at a fit whose $cov is the SIR one.
+theoFitForSetCov <- .sirLazy(suppressMessages(
+  nlmixr2utils::nlmixr2(
+    theoOneCmt,
+    nlmixr2data::theo_sd,
+    est = "focei",
+    control = list(print = 0L, covMethod = "r")
+  )
+))
