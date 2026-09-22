@@ -342,8 +342,10 @@
   offsetRawres = 1L,
   inFilter = NULL,
   boxcox = TRUE,
-  capCorrelation = 0.8
+  capCorrelation = 0.8,
+  rankDeficiency = c("abort", "repair")
 ) {
+  rankDeficiency <- match.arg(rankDeficiency)
   mat <- .sirRawResultsMatrix(
     fit,
     ps,
@@ -360,11 +362,12 @@
   # PsN validates raw-results rank before using it, and so do we. Naming the
   # raw-results source here is more use than the generic message
   # sirUpdateProposal() would raise a moment later.
-  .sirCheckProposalRank(mat, what = "raw-results")
+  .sirCheckProposalRank(mat, what = "raw-results", onDeficient = rankDeficiency)
   updated <- sirUpdateProposal(
     mat,
     boxcox = boxcox,
-    capCorrelation = capCorrelation
+    capCorrelation = capCorrelation,
+    rankDeficiency = rankDeficiency
   )
   list(
     mu = stats::setNames(colMeans(mat), colnames(mat)),
@@ -393,7 +396,8 @@
       offsetRawres = control$offsetRawres,
       inFilter = control$inFilter,
       boxcox = control$boxcox,
-      capCorrelation = control$capCorrelation
+      capCorrelation = control$capCorrelation,
+      rankDeficiency = control$rankDeficiency %||% "abort"
     )
     return(list(
       covMat = got$covMat,

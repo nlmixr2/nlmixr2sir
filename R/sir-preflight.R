@@ -101,34 +101,187 @@
   invisible(est)
 }
 
-# Reproduction gaps at or below this are not reported at all; above it, and up
-# to objfTolerance, the run proceeds with a warning.
+# How the objective preflight decides what is worth refusing.
 #
-# Both numbers are set from what a gap DOES, not from any model of how big it
-# should be. A dOFV error of d moves an importance weight by exp(-d/2): 1e-3
-# moves it 0.05%, 1e-2 moves it 0.5%, against dOFV of order 1 to 10. So 1e-2 is
-# where the error starts to be worth refusing over, and 1e-3 is where it starts
-# to be worth mentioning.
+# The check compares fit$objf with a fresh re-evaluation at the same estimates.
+# That difference is a CONSTANT across candidates -- every candidate is scored
+# by the same evaluator, so it shifts every dOFV equally, and a constant shift
+# in dOFV multiplies every weight by the same factor and divides out of the
+# normalised weights. R/sir-iterate.R already says exactly this where recentring
+# moves the reference.
 #
-# Why not a tighter number. The gap is inner-solve convergence slack: fit$objf
-# comes from the final outer iteration's inner solve with warm-started etas,
-# and this check re-solves the inner problem fresh. Measured across models it
-# spans ~1e-6 to 1.2e-3, so the old 1e-4 default sat in the MIDDLE of the
-# range and fired erratically -- theoFit() reproduces to 8.2e-5 and passed
-# while a near-identical one-eta fit reproduced to 1.107e-4 and aborted. The
-# package's own vignette and runSIR() example both aborted under it.
+# Since runSIR() now measures dOFV against the RE-EVALUATED centre rather than
+# fit$objf, that constant is zero by construction and the difference no longer
+# reaches the weights at all. What remains of this check is its real job:
+# noticing that the evaluator is on a different SURFACE from the fit.
 #
-# Why not a formula. Only sigdig predicts the gap (~3.4x per digit). Eta count
-# does NOT -- measured flat from 1 to 12 etas, and a three-eta theo_sd fit is
-# 27x worse than a synthetic twelve-eta one -- and neither does design
-# collinearity. Both were tested and falsified; the residual variation is
-# model-specific and unexplained, so a formula would give false confidence.
+# Measured on Rik Schoemaker's QR models (P9-PROGRESS.md), the difference was
+# 10x to 116x larger than the part that does not cancel, so aborting on it
+# refused sound runs over the term that provably vanishes.
 #
-# What the check is FOR is unaffected: it exists to catch a candidate scored on
-# a different SURFACE, and the two documented cases are a SAEM fit at 2.69 OFV
-# units and the dropped-agqLow defect at 6490. Both clear 1e-2 by more than two
-# orders of magnitude.
-.sirObjfWarnTolerance <- 1e-3
+# The threshold is RELATIVE because that is the scale on which the two things
+# this check must tell apart actually separate:
+#
+#   convergence slack, 20 QR models   <= 1.4e-5 of the objective
+#   a SAEM fit scored under FOCEi      2.3e-2 of the objective (2.69 on theo_sd)
+#
+# 1600x apart relatively; only 10x apart absolutely (0.27 against 2.69), which
+# is why the absolute default that preceded this could not separate them.
+# 1e-3 sits ~70x above the worst observed slack and ~23x below the SAEM
+# signature.
+.sirObjfAbsFloor <- 1e-2
+
+# Never tighter than the floor: a relative tolerance alone would be absurd on a
+# small objective, and 1e-2 is comfortably achievable at theo_sd scale.
+.sirObjfAbortThreshold <- function(stored, objfTolerance) {
+  # An explicit zero is honoured rather than floored. It is the only way to ask
+  # for exact agreement, the suite uses it to exercise the mismatch path, and
+  # silently overriding a user's zero with 1e-2 would be the kind of quiet
+  # substitution this package refuses elsewhere.
+  if (objfTolerance <= 0) {
+    return(0)
+  }
+  max(objfTolerance * abs(stored), .sirObjfAbsFloor)
+}
+
+# Purely informational, and absolute on purpose: it exists to tell the user
+# that reported dOFVs are measured against a centre that differs from the
+# published fit$objf by this much. Below ~0.1 OFV units nobody needs telling.
+.sirObjfWarnTolerance <- 0.1
+
+# A fixed pseudo-random unit direction that does NOT consume the session's RNG
+# stream. Drawing from the global stream here would shift every subsequent
+# sample the run draws, so the whole run's answer would depend on whether the
+# noise floor was measured.
+# Run `expr` with the session's RNG state restored afterwards.
+#
+# Wrapped around the WHOLE noise measurement, not merely the direction draw:
+# the evaluator goes through the worker plan, which consumes from the stream
+# itself. Without this, whether the noise floor was measured would change every
+# sample the run subsequently draws.
+.sirWithPreservedRng <- function(expr) {
+  hasSeed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  old <- if (hasSeed) get(".Random.seed", envir = globalenv()) else NULL
+  on.exit(
+    {
+      if (is.null(old)) {
+        if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+          rm(".Random.seed", envir = globalenv())
+        }
+      } else {
+        assign(".Random.seed", old, envir = globalenv())
+      }
+    },
+    add = TRUE
+  )
+  force(expr)
+}
+
+.sirFixedDirection <- function(n, seed = 20260921L) {
+  set.seed(seed)
+  v <- stats::rnorm(n)
+  v / sqrt(sum(v^2))
+}
+
+# Measure the evaluator's noise floor: how much the scored objective wanders
+# for reasons that are NOT the objective changing.
+#
+# This is the term the old centre check never measured --
+# e(candidate) - e(centre) -- and it is the only one that reaches the weights.
+#
+# Method: walk a transect through parameter space along a fixed direction,
+# scaled by each parameter's own proposal SD, so the separations are the ones
+# candidates actually have. The true objective is smooth along a straight line,
+# so whatever a low-order polynomial in the step cannot absorb is evaluator
+# slack. Order 4 over 15 points leaves 10 residual degrees of freedom and was
+# measured to sit within ~20% of the order-6 plateau.
+#
+# Measured floors ranged 1e-4 to 2.8e-2 across the QR models -- 280x, and
+# model-specific, which is exactly why it has to be measured per run rather
+# than assumed.
+.sirObjectiveNoise <- function(fit,
+                               ps = .sirParamSpace(fit),
+                               mu = NULL,
+                               nPoints = 15L,
+                               span = 0.25,
+                               workers = NULL,
+                               rxThreads = NULL) {
+  .sirWithPreservedRng(.sirObjectiveNoiseImpl(
+    fit, ps, mu, nPoints, span, workers, rxThreads
+  ))
+}
+
+.sirObjectiveNoiseImpl <- function(fit, ps, mu, nPoints, span, workers,
+                                   rxThreads) {
+  none <- list(noise = NA_real_, nOk = 0L, range = NA_real_)
+  if (is.null(mu)) {
+    mu <- tryCatch(.sirProposalMu(fit, ps), error = function(e) NULL)
+  }
+  if (is.null(mu)) {
+    return(none)
+  }
+  cov <- tryCatch(
+    suppressMessages(sirGetProposalCov(fit)),
+    error = function(e) NULL
+  )
+  if (!is.matrix(cov) || is.null(rownames(cov))) {
+    return(none)
+  }
+  nm <- intersect(names(mu), rownames(cov))
+  if (length(nm) == 0L) {
+    return(none)
+  }
+  sdv <- sqrt(diag(cov)[nm])
+  if (!all(is.finite(sdv)) || all(sdv == 0)) {
+    return(none)
+  }
+  dir <- .sirFixedDirection(length(nm))
+  steps <- seq(-span, span, length.out = nPoints)
+  mat <- t(vapply(
+    steps,
+    function(s) {
+      v <- mu
+      v[nm] <- mu[nm] + s * dir * sdv
+      v
+    },
+    numeric(length(mu))
+  ))
+  colnames(mat) <- names(mu)
+
+  ofv <- tryCatch(
+    sirEvalOFV(fit, mat, workers = workers, rxThreads = rxThreads),
+    error = function(e) rep(NA_real_, nPoints)
+  )
+  ok <- is.finite(ofv)
+  # Order 4 needs 5 coefficients; insist on a few residual degrees of freedom
+  # rather than reporting a number fitted to nothing.
+  if (sum(ok) < 9L) {
+    return(none)
+  }
+  # Order 6, not 4. The residual is only "noise" once the polynomial has
+  # absorbed the shape, and a quartic demonstrably cannot: on QR model N021 a
+  # +/-1 SD transect swings 1208 OFV units, where the quartic residual was
+  # 73.94 and still falling steeply with order -- pure unfitted curvature, and
+  # it produced a false refusal before this was corrected.
+  fitPoly <- tryCatch(
+    stats::lm(ofv[ok] ~ stats::poly(steps[ok], 6L)),
+    error = function(e) NULL
+  )
+  if (is.null(fitPoly)) {
+    return(none)
+  }
+  noise <- stats::sd(stats::residuals(fitPoly))
+  span_range <- diff(range(ofv[ok]))
+
+  # Refuse to report a number the fit does not support. Genuine slack is orders
+  # of magnitude below the transect's own variation (9e-5 of it on N001,
+  # 3.5e-4 on N021 at this span); anything approaching a few percent means the
+  # polynomial is still fitting the objective, not the slack in it.
+  if (is.finite(span_range) && span_range > 0 && noise > 0.02 * span_range) {
+    return(none)
+  }
+  list(noise = noise, nOk = sum(ok), range = span_range)
+}
 
 #' Verify the candidate evaluator reproduces the fit's objective
 #'
@@ -148,7 +301,10 @@
   fit,
   workers = NULL,
   rxThreads = NULL,
-  objfTolerance = 1e-2,
+  objfTolerance = 1e-3,
+  noise = TRUE,
+  noiseTolerance = 1,
+  warnTolerance = .sirObjfWarnTolerance,
   stencil = TRUE,
   stencilTolerance = 1
 ) {
@@ -207,23 +363,60 @@
     reevaluated = reevaluated,
     absDiff = abs_diff,
     relDiff = rel_diff,
-    stencil = stencil
+    stencil = stencil,
+    noise = NA_real_,
+    abortThreshold = NA_real_
   )
 
   # Absolute tolerance only. A relative tolerance on the raw OFV is the wrong
   # scale: the objective carries additive constants and grows with the number
   # of observations, while the weights depend on DIFFERENCES in OFV. On an
   # objective of 50,000 a relative 1e-4 would wave through five OFV units.
-  if (abs_diff > objfTolerance) {
+  abortThreshold <- .sirObjfAbortThreshold(stored, objfTolerance)
+  # Local alias: cli treats a `{}` expression starting with a dot as a style
+  # name, so `{.sirObjfAbsFloor}` errors rather than interpolating.
+  absFloor <- .sirObjfAbsFloor
+  out$abortThreshold <- abortThreshold
+  if (abs_diff > abortThreshold) {
     cli::cli_abort(c(
       "SIR cannot reproduce the fit's objective at its own estimates.",
       "x" = "Stored {.code fit$objf}: {format(stored, digits = 10)}",
       "x" = "Reevaluated at the same estimates: {format(reevaluated, digits = 10)}",
-      "i" = "Absolute difference {format(abs_diff, digits = 4)}; tolerance {objfTolerance} (absolute).",
-      "i" = "Candidates would be scored on a different surface from the dOFV reference, so the importance weights would not be meaningful.",
-      "i" = "If the fit and the evaluator are on the same surface, this is convergence slack: refit with a higher {.code sigdig} (each additional digit has been measured to shrink the gap about 3-4 fold).",
-      "i" = "Raise {.code runSIRControl(objfTolerance =)} only if this difference is understood and acceptable; it hides the gap rather than reducing it."
+      "i" = "Absolute difference {format(abs_diff, digits = 4)}; threshold {format(abortThreshold, digits = 4)} ({objfTolerance} of the objective, floored at {absFloor}).",
+      "i" = "A difference this large relative to the objective is the signature of a different likelihood surface, not of convergence slack, and candidates would not be scored on the surface the dOFVs are measured against.",
+      "i" = "If the fit and the evaluator are on the same surface, refit with a higher {.code sigdig}: each additional digit has been measured to shrink the gap about 3-4 fold."
     ))
+  }
+
+  # Informational only. Since runSIR() measures dOFV against the re-evaluated
+  # centre, this difference no longer reaches the weights -- but it does mean
+  # reported dOFVs are not measured against the published fit$objf, and at this
+  # magnitude that is worth saying once.
+  if (abs_diff > warnTolerance) {
+    cli::cli_warn(c(
+      "The evaluator's objective at the fitted estimates differs from {.code fit$objf} by {format(abs_diff, digits = 4)}.",
+      "i" = "Stored {.code fit$objf}: {format(stored, digits = 10)}; reevaluated: {format(reevaluated, digits = 10)}.",
+      "i" = "dOFVs are measured against the reevaluated centre, so this constant does not reach the importance weights -- but reported dOFVs will not line up with {.code fit$objf}.",
+      "i" = "This is inner-solve convergence slack. A higher {.code sigdig} shrinks it about 3-4 fold per digit."
+    ))
+  }
+
+  # The part that does NOT cancel, and the only part that reaches the weights.
+  if (isTRUE(noise)) {
+    nz <- .sirObjectiveNoise(fit, ps, mu, workers = workers, rxThreads = rxThreads)
+    out$noise <- nz$noise
+    # Reported, never refused. An earlier draft aborted here and immediately
+    # produced a false refusal on a sound model, which is precisely what this
+    # preflight must not do: a diagnostic whose own estimator can be wrong has
+    # no business stopping a run. If the number is untrustworthy
+    # .sirObjectiveNoise() returns NA and nothing is said at all.
+    if (is.finite(nz$noise) && nz$noise > noiseTolerance) {
+      cli::cli_warn(c(
+        "The objective carries a noise floor of {format(nz$noise, digits = 4)} OFV units.",
+        "i" = "This is the part of the evaluation error that does NOT cancel between a candidate and the centre, so it enters each weight as {.code exp(-noise/2)}: about {format(100 * (1 - exp(-nz$noise / 2)), digits = 2)}%.",
+        "i" = "The run continues. A higher {.code sigdig} shrinks it about 3-4 fold per digit."
+      ))
+    }
   }
 
   # Inside tolerance but worth saying out loud. A gap of this size does not
@@ -260,7 +453,10 @@
         "i" = "Tolerance is {.code runSIRControl(objfStencilTolerance =)}, currently {stencilTolerance}."
       ))
     }
-    if (stencil$minDOFV < -objfTolerance) {
+    # Absolute, and deliberately NOT objfTolerance: that is now a fraction of
+    # the objective, so using it here would fire this warning whenever a probe
+    # improved by 0.001 -- well inside the measured noise floor on some models.
+    if (stencil$minDOFV < -warnTolerance) {
       cli::cli_warn(c(
         "The fitted estimates are not quite a local optimum of the objective.",
         "i" = "Best probe improved the objective by {format(-stencil$minDOFV, digits = 4)} ({.val {stencil$param[[worst]]}}).",

@@ -159,7 +159,9 @@
 # .sirEnsurePosDef(): in raw coordinates the verdict moves with the parameter
 # units. A full-rank two-column sample whose second column was expressed in
 # units 1e-6 smaller was previously rejected as rank one.
-.sirCheckProposalRank <- function(mat, what = "retained", rankTol = 1e-8) {
+.sirCheckProposalRank <- function(mat, what = "retained", rankTol = 1e-8,
+                                  onDeficient = c("abort", "repair")) {
+  onDeficient <- match.arg(onDeficient)
   checkmate::assertMatrix(mat, mode = "numeric", min.rows = 1L, min.cols = 1L)
   m <- nrow(mat)
   p <- ncol(mat)
@@ -205,18 +207,36 @@
   }
 
   rank <- sum(eig > rankTol * max(eig))
+  deficient <- p - rank
   if (rank < p) {
-    deficient <- p - rank
-    cli::cli_abort(c(
-      "The {what} vectors are rank deficient.",
+    # Two causes, and the remedies are opposite. The message used to offer only
+    # the first, which was wrong on QR model N029 and sent the reader looking
+    # in the wrong place: that fit's own covariance is numerically singular
+    # (smallest eigenvalue 3.22e-10), so its proposal was degenerate before any
+    # sampling and raising nResample from 200 to 500 changed nothing.
+    causes <- c(
+      "i" = "With {m} vector{?s} for {p} parameter{?s}, repeated or collinear draws are one cause: raise {.arg nResample}, or lower {.arg capResampling} to reduce repeats.",
+      "i" = "The other is a degenerate proposal, where the fit itself does not identify every direction. Check {.code eigen(fit$cov)$values}: if the smallest is at or near zero, more vectors cannot help."
+    )
+    if (identical(onDeficient, "abort")) {
+      cli::cli_abort(c(
+        "The {what} vectors are rank deficient.",
+        "x" = "Numerical rank {rank} for {p} parameters: {deficient} direction{?s} unsupported.",
+        causes,
+        "i" = "Forcing this positive definite would invent uncertainty the sample does not support, so this stops rather than guessing.",
+        "i" = "To proceed anyway with the {deficient} unsupported direction{?s} pinned to a token variance, set {.code runSIRControl(rankDeficiency = \"repair\")}."
+      ))
+    }
+    cli::cli_warn(c(
+      "Proceeding with a rank-deficient {what} covariance because {.code rankDeficiency = \"repair\"}.",
       "x" = "Numerical rank {rank} for {p} parameters: {deficient} direction{?s} unsupported.",
-      "i" = "{m} vector{?s} supplied, so repeated or collinear draws are the likely cause.",
-      "i" = "Forcing this positive definite would invent uncertainty the sample does not support.",
-      "i" = "Increase {.arg nResample}, or lower {.arg capResampling} to reduce repeats."
+      "!" = "This INVENTS uncertainty the sample does not support: {deficient} unsupported direction{?s} get a token variance, and later iterations will propose along {?it/them}.",
+      "i" = "Intervals for parameters loading on those {deficient} direction{?s} are not evidence from the data.",
+      causes
     ))
   }
 
-  invisible(list(rank = rank, nVectors = m, nParams = p))
+  invisible(list(rank = rank, nVectors = m, nParams = p, deficient = deficient))
 }
 
 

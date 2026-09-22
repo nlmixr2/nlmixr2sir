@@ -1,5 +1,46 @@
 # nlmixr2sir (development version)
 
+## The objective preflight no longer refuses sound runs
+
+* **dOFVs are measured against the re-evaluated centre, not `fit$objf`.** The
+  difference between the two is a constant across candidates, so it shifts
+  every dOFV equally, multiplies every weight by the same factor and divides
+  out of the normalised weights. Using the evaluator's own value at the centre
+  makes it zero by construction. This is stricter than PsN, which keeps the
+  original `.lst` objective and hardcodes the centre's own `deltaofv` to zero
+  without ever evaluating it. The value used is recorded on the result as
+  `attr(, "initialReferenceOfv")`.
+
+* **`objfTolerance` is now a fraction of the objective (default `1e-3`),
+  floored at an absolute `1e-2`.** Measured across 20 population PK models,
+  convergence slack stayed within `1.4e-5` of the objective while a SAEM fit
+  scored under FOCEi sits at `2.3e-2` of it: 1600x apart relatively, and only
+  10x apart absolutely. An absolute threshold could not separate them, and
+  refused 8 of those 20 models. None are refused now. An explicit
+  `objfTolerance = 0` is honoured rather than floored.
+
+* **The evaluator's noise floor is measured and reported.** This is the part of
+  the evaluation error that does *not* cancel between a candidate and the
+  centre, so it is the part that reaches the weights. It is warned about, never
+  refused, and withheld entirely when the estimate is not trustworthy.
+
+* **`rankDeficiency = "repair"` allows a run whose retained vectors cannot
+  support a full-rank covariance**, pinning the unsupported directions to a
+  token variance. The default remains `"abort"`: flooring a deficient direction
+  fabricates variance the sample never supported, and later iterations propose
+  along it, so intervals for parameters loading on such a direction are not
+  evidence from the data.
+
+  It exists for fits whose own covariance is degenerate, where resampling
+  cannot help. A one-compartment Michaelis-Menten model on single-dose oral
+  data gave a `fit$cov` with smallest eigenvalue `3.22e-10` and a proposal with
+  a negative one; raising `nResample` from 200 to 500 changed nothing.
+
+* **The rank-deficiency message names both causes.** It previously offered only
+  "repeated or collinear draws ... increase `nResample`", which is wrong when
+  the proposal is degenerate before any sampling, and sent the reader looking
+  in the wrong place. It now points at `eigen(fit$cov)$values` as well.
+
 ## Using a SIR covariance on the fit
 
 * **SIR is now registered as a covariance method for `nlmixr2est::setCov()`.**

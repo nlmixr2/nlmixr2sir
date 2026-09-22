@@ -20,7 +20,8 @@ test_that("the preflight returns the stored and reevaluated objectives", {
   skip_on_cran()
   fit <- theoFit()
   res <- .sirCheckObjective(fit, workers = 1L)
-  expect_named(res, c("stored", "reevaluated", "absDiff", "relDiff", "stencil"))
+  expect_named(res, c("stored", "reevaluated", "absDiff", "relDiff", "stencil",
+                      "noise", "abortThreshold"))
   expect_equal(res$stored, fit$objf, tolerance = 1e-12)
   expect_lt(res$absDiff, 1e-3)
 })
@@ -111,15 +112,27 @@ test_that("the stencil can be switched off", {
   expect_null(res$stencil)
 })
 
-test_that("the preflight tolerance is absolute, not relative", {
+test_that("the preflight tolerance is relative, with an absolute floor", {
   skip_on_cran()
+  # REVERSED IN P9, deliberately. This test used to assert the opposite, on the
+  # reasoning that "the weights depend on differences in OFV, so only the
+  # absolute scale is meaningful". The premise was right and the conclusion
+  # wrong: the difference this check measures is a CONSTANT across candidates,
+  # and a constant shift in dOFV divides out of the normalised weights, so it
+  # never reaches them at all -- doubly so now that dOFV is measured against
+  # the re-evaluated centre.
+  #
+  # What the check must actually separate is convergence slack from a different
+  # likelihood surface, and those separate by 1600x relatively against 10x
+  # absolutely. Measured over 20 population PK models in P9-PROGRESS.md.
   fit <- theoFit()
-  # A relative rule would wave through a large absolute gap on a large
-  # objective. The weights depend on differences in OFV, so only the absolute
-  # scale is meaningful.
+  thr <- nlmixr2sir:::.sirObjfAbortThreshold
+  expect_equal(thr(fit$objf, 1e-3), abs(fit$objf) * 1e-3)
+  expect_gt(thr(fit$objf, 1e-3), nlmixr2sir:::.sirObjfAbsFloor)
+  # Only an explicit zero demands exact agreement.
   expect_error(
     .sirCheckObjective(fit, workers = 1L, objfTolerance = 0, stencil = FALSE),
-    "absolute"
+    "reproduce"
   )
 })
 

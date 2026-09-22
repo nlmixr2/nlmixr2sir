@@ -43,20 +43,46 @@
 #' @param objfStencilTolerance Non-negative number. How much a probe may lower
 #'   the objective before the run is refused. Smaller decreases warn instead,
 #'   since a fit that stopped just short of convergence is common and harmless.
-#' @param objfTolerance Non-negative number, default `1e-2`. Before sampling,
-#'   SIR re-evaluates the objective at the fit's own estimates and compares it
-#'   with `fit$objf`; the run aborts unless the absolute difference is within
-#'   this tolerance, and warns above `1e-3`. It is the per-run evidence that
-#'   candidates are scored on the same surface the dOFVs are measured against.
+#' @param objfTolerance Non-negative number, default `1e-3`, interpreted as a
+#'   **fraction of the objective** (floored at an absolute `1e-2`). Before
+#'   sampling, SIR re-evaluates the objective at the fit's own estimates and
+#'   compares it with `fit$objf`; the run aborts only if the absolute
+#'   difference exceeds that threshold.
 #'
-#'   The default is set from what a gap does rather than from how big it
-#'   "should" be: a dOFV error of `d` moves an importance weight by
-#'   `exp(-d/2)`, so `1e-2` costs under 0.5% against dOFV of order 1 to 10,
-#'   while still catching a genuinely different surface by more than two orders
-#'   of magnitude. Ordinary reproduction gaps are inner-solve convergence
-#'   slack, which only `sigdig` predicts; refitting at a higher `sigdig`
-#'   shrinks a gap roughly 3-4 fold per digit, and is the remedy to prefer over
-#'   raising this.
+#'   It is relative because that is the scale on which the two things this
+#'   check must separate actually differ: convergence slack measured across 20
+#'   population PK models stayed within `1.4e-5` of the objective, while a SAEM
+#'   fit scored under FOCEi is `2.3e-2` of it. Those are 1600x apart relatively
+#'   and only 10x apart absolutely.
+#'
+#'   The difference itself is a constant across candidates, and since dOFVs are
+#'   measured against the re-evaluated centre it does not reach the importance
+#'   weights at all. Refitting at a higher `sigdig` shrinks it about 3-4 fold
+#'   per digit.
+#' @param objfNoise Logical, default `TRUE`. Measure the evaluator's noise
+#'   floor before sampling, by walking a short transect through parameter space
+#'   at the proposal's own scale and taking the residual from a smooth
+#'   polynomial. Unlike the reproduction difference above, this part does *not*
+#'   cancel between a candidate and the centre, so it enters every weight as
+#'   `exp(-noise/2)`. Costs 15 model evaluations.
+#' @param objfNoiseTolerance Non-negative number, default `1` OFV unit. The run
+#'   *warns* above this and never refuses: at 1 OFV unit a single weight is
+#'   perturbed by about 39%, which is worth knowing, but a diagnostic whose own
+#'   estimator can be wrong has no business stopping a run. When the estimate
+#'   is not trustworthy -- the transect's polynomial has not absorbed the
+#'   objective's shape -- nothing is reported at all.
+#' @param rankDeficiency How to handle retained vectors that cannot support a
+#'   full-rank covariance. `"abort"` (the default) refuses, because flooring a
+#'   deficient direction's eigenvalue does not recover missing information --
+#'   it fabricates variance the sample never supported, and later iterations
+#'   then propose along it. `"repair"` proceeds with those directions pinned to
+#'   a token variance, with a warning saying so.
+#'
+#'   `"repair"` exists for fits whose own covariance is degenerate, where no
+#'   amount of resampling helps: a Michaelis-Menten model on single-dose data,
+#'   for instance, may not identify every direction, and `eigen(fit$cov)$values`
+#'   will show it. Intervals for parameters loading on a repaired direction are
+#'   not evidence from the data, so this is opt-in rather than automatic.
 #' @param recover Logical. If `TRUE` and the output directory holds
 #'   `sir_state.rds`, resume from the last completed iteration when possible.
 #' @param addIterations Logical. If `TRUE`, append the supplied schedule after
@@ -113,10 +139,13 @@ runSIRControl <- function(
   boxcox = TRUE,
   workers = NULL,
   rxThreads = NULL,
+  rankDeficiency = c("abort", "repair"),
   recover = TRUE,
   addIterations = FALSE,
   saveFiles = TRUE,
-  objfTolerance = 1e-2,
+  objfTolerance = 1e-3,
+  objfNoise = TRUE,
+  objfNoiseTolerance = 1,
   objfStencil = TRUE,
   objfStencilTolerance = 1,
   omegaFallback = c("cov", "wishart"),
@@ -157,6 +186,7 @@ runSIRControl <- function(
   checkmate::assertNumber(capResampling, lower = 1, finite = TRUE)
   checkmate::assertFlag(recenter)
   checkmate::assertFlag(boxcox)
+  rankDeficiency <- match.arg(rankDeficiency)
   checkmate::assertFlag(recover)
   checkmate::assertFlag(addIterations)
   checkmate::assertFlag(saveFiles)
@@ -167,6 +197,8 @@ runSIRControl <- function(
     ))
   }
   checkmate::assertNumber(objfTolerance, lower = 0, finite = TRUE)
+  checkmate::assertFlag(objfNoise)
+  checkmate::assertNumber(objfNoiseTolerance, lower = 0, finite = TRUE)
   checkmate::assertFlag(objfStencil)
   checkmate::assertNumber(objfStencilTolerance, lower = 0, finite = TRUE)
   checkmate::assertNumber(sigmaFallbackRse, lower = 0, finite = TRUE)
@@ -228,10 +260,13 @@ runSIRControl <- function(
       boxcox = boxcox,
       workers = workers,
       rxThreads = rxThreads,
+      rankDeficiency = rankDeficiency,
       recover = recover,
       addIterations = addIterations,
       saveFiles = saveFiles,
       objfTolerance = objfTolerance,
+      objfNoise = objfNoise,
+      objfNoiseTolerance = objfNoiseTolerance,
       objfStencil = objfStencil,
       objfStencilTolerance = objfStencilTolerance,
       omegaFallback = omegaFallback,

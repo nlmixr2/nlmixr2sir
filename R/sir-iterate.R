@@ -24,8 +24,10 @@ sirRunIteration <- function(
   omegaDf = NULL,
   requestedSamples = nSamples,
   isLastIteration = FALSE,
-  referenceOfv = NULL
+  referenceOfv = NULL,
+  rankDeficiency = c("abort", "repair")
 ) {
+  rankDeficiency <- match.arg(rankDeficiency)
   omegaFallback <- match.arg(omegaFallback)
 
   # The OFV that dOFV is measured against. It starts at the fitted optimum and
@@ -252,7 +254,8 @@ sirRunIteration <- function(
     capCorrelation = capCorrelation,
     # The centre the next iteration will transform with these very parameters.
     # Under recenter it is the best candidate, not necessarily a retained row.
-    centre = new_mu
+    centre = new_mu,
+    rankDeficiency = rankDeficiency
   )
   new_cov <- updated$covMat
   new_bc_state <- updated$boxcoxParams # NULL when boxcox = FALSE

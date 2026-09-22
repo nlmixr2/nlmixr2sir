@@ -117,9 +117,15 @@ test_that("an imp fit survives the objective stencil", {
   # plain focei fixture, raises the same one. These fixtures are deliberately
   # small and stop a little short of convergence. Asserted rather than muffled
   # so that a genuinely new warning here would still fail the suite.
+  # The threshold is injected: since P9 the near-optimum warning fires at 0.1
+  # OFV units rather than 1e-2, and this fixture's best probe improves by about
+  # 0.027 -- real, but below the level worth reporting now that the measured
+  # noise floor can itself reach 0.028.
   fit <- impmapFit()
   expect_warning(
-    withoutScoringNotice(nlmixr2sir:::.sirCheckObjective(fit, workers = 1L)),
+    withoutScoringNotice(nlmixr2sir:::.sirCheckObjective(
+      fit, workers = 1L, warnTolerance = 1e-3
+    )),
     "local optimum"
   )
 })

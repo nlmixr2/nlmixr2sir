@@ -22,16 +22,21 @@
 # of magnitude -- a SAEM fit scored under FOCEi is 2.69 units out on theo_sd,
 # and the dropped-agqLow defect was 6490.
 
-test_that("the default tolerance is 1e-2", {
-  expect_equal(runSIRControl()$objfTolerance, 1e-2)
-  expect_equal(formals(nlmixr2sir:::.sirCheckObjective)$objfTolerance, 1e-2)
+# SUPERSEDED BY P9. The absolute default below was replaced by a RELATIVE one
+# once 20 population PK models showed absolute thresholds cannot separate
+# convergence slack from a different surface. Kept, rewritten, because the rest
+# of what this file pins is still true. See test-sir-objf-reference.R.
+test_that("the default tolerance is a relative 1e-3", {
+  expect_equal(runSIRControl()$objfTolerance, 1e-3)
+  expect_equal(formals(nlmixr2sir:::.sirCheckObjective)$objfTolerance, 1e-3)
 })
 
-test_that("the warning band sits an order of magnitude below the abort", {
-  # One order of magnitude: wide enough that an ordinary fit does not trip it,
-  # narrow enough that a fit approaching the abort is announced first.
-  expect_equal(nlmixr2sir:::.sirObjfWarnTolerance, 1e-3)
-  expect_lt(nlmixr2sir:::.sirObjfWarnTolerance, runSIRControl()$objfTolerance)
+test_that("the informational threshold is absolute and coarse", {
+  # It no longer guards anything -- the difference does not reach the weights
+  # now that dOFV is measured against the re-evaluated centre. It exists to say
+  # that reported dOFVs will not line up with fit$objf, which nobody needs told
+  # below a tenth of an OFV unit.
+  expect_equal(nlmixr2sir:::.sirObjfWarnTolerance, 0.1)
 })
 
 test_that("an ordinary fit reproduces its objective silently", {
@@ -50,21 +55,25 @@ test_that("a fit in the warning band is announced but not refused", {
   # inside the abort. This is the case the old default got wrong: it is a
   # perfectly ordinary three-eta FOCEi fit at the default sigdig.
   fit <- threeEtaFit()
-  # Assign inside, rather than relying on what expect_warning() returns.
+  # This fixture reproduces to ~1.15e-3, far below the 0.1 informational
+  # threshold, so the threshold is injected to exercise the path rather than
+  # contrive a fixture. Assign inside: do not rely on expect_warning()'s return.
   r <- NULL
   expect_warning(
-    r <- nlmixr2sir:::.sirCheckObjective(fit, workers = 1L, stencil = FALSE),
-    "reproduc"
+    r <- nlmixr2sir:::.sirCheckObjective(fit, workers = 1L, stencil = FALSE,
+                                         warnTolerance = 1e-4),
+    "differs from"
   )
-  expect_gt(r$absDiff, nlmixr2sir:::.sirObjfWarnTolerance)
-  expect_lt(r$absDiff, runSIRControl()$objfTolerance)
+  expect_gt(r$absDiff, 1e-4)
+  expect_lt(r$absDiff, r$abortThreshold)
 })
 
 test_that("the warning names sigdig, the one lever known to work", {
   skip_on_cran()
   w <- tryCatch(
     {
-      nlmixr2sir:::.sirCheckObjective(threeEtaFit(), workers = 1L, stencil = FALSE)
+      nlmixr2sir:::.sirCheckObjective(threeEtaFit(), workers = 1L,
+                                      stencil = FALSE, warnTolerance = 1e-4)
       NULL
     },
     warning = function(x) conditionMessage(x)
@@ -108,9 +117,12 @@ test_that("a genuinely different surface is still refused", {
     nlmixr2sir:::.sirCheckObjective(fit, workers = 1L, stencil = FALSE)
   )
   expect_lt(r$absDiff, 2.69 / 100)
+  # objfTolerance = 0 is the only way to demand exact agreement: any positive
+  # value is floored at 1e-2 so that a relative threshold cannot become absurd
+  # on a small objective.
   expect_error(
     nlmixr2sir:::.sirCheckObjective(
-      fit, workers = 1L, objfTolerance = 1e-8, stencil = FALSE
+      fit, workers = 1L, objfTolerance = 0, stencil = FALSE
     ),
     "reproduce"
   )
