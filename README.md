@@ -228,6 +228,9 @@ cannot express that asymmetry, which is a large part of why SIR is run at all.
 | estimation methods accepted | the deterministic ladder (`fo`/`foi`/`foce`/`focei`/`focep`/`laplace`/`agq` + `m…`/`i…`) and the importance-sampling family (`imp`/`impmap`/`qrpem`) | matches PsN on IMP/IMPMAP; still a deliberate difference on the rest, where PsN warns and continues; see below |
 | draw-attempt budget | `10 x nSamples` | deliberate difference — PsN uses `2000 x nSamples`; see below |
 | OMEGA/SIGMA block adjustment after prolonged rejection | — | deliberate difference — not implemented; see below |
+| objective preflight | `objfTolerance`, `objfStencil` | **addition** — PsN has no equivalent; see below |
+| evaluator noise floor | `objfNoise` | **addition** — reported, never gated |
+| rank-deficient retained set | `rankDeficiency` | **addition** — refuses by default, `"repair"` to override |
 | `-auto_rawres` | — | not implemented |
 | `-print_iter` | — | not implemented |
 | `-fast_posdef_checks` | — | not implemented |
@@ -279,15 +282,30 @@ property of the estimand, not a defect.
 `focei`, `focep`, `laplace`, `agq`, and their `m…`/`i…` mu-referencing
 variants — plus the importance-sampling family `imp`, `impmap` and `qrpem`.
 Candidates on the ladder are scored by re-evaluating the fit's own method at
-fixed population parameters, carrying the fit's own control settings, so the
-candidate surface and the `fit$objf` reference are the same function.
+fixed population parameters, carrying the fit's own control settings, so
+candidates and the reference are the same function. The reference is the
+evaluator's own objective at the fitted estimates, not `fit$objf` itself: the
+two differ by whatever the fit's inner solve and a fresh one disagree about,
+and measuring dOFV against the re-evaluated centre makes that difference
+exactly zero instead of merely small. It is recorded on the result as
+`attr(, "initialReferenceOfv")`.
 
-A stochastic or non-FOCEi-family fit is refused. On a SAEM fit of `theo_sd` the
-stored objective is 208.512 (Gaussian quadrature) against 205.820 from a FOCEi
+A stochastic or non-FOCEi-family fit is refused, by the supported-method list,
+before any directory is created. On a SAEM fit of `theo_sd` the stored
+objective is 208.512 (Gaussian quadrature) against 205.820 from a FOCEi
 re-evaluation at the same estimates — a 2.69-unit gap that is a different
-function, not noise. It does not cancel: under `recenter = TRUE` the centre
-scores dOFV ≈ −2.69 and the run "finds" a better optimum made entirely of the
-offset. The preflight rejects such a fit before any directory is created.
+function, not noise.
+
+Be precise about which part of that gap matters, because it is easy to get
+wrong. A *constant* offset between the fit's objective and the evaluator's
+cancels: it shifts every dOFV equally, multiplies every weight by the same
+factor, and divides out of the normalised weights — and since the reference is
+the re-evaluated centre, it is zero anyway. What does not cancel is the part
+that varies with the parameters, and a different likelihood approximation is
+exactly that: the SAEM estimates are not the FOCEi optimum, so the surface is a
+different shape and not merely a different height. That is what the objective
+stencil probes, and it is why the supported-method list is the gate rather than
+any numerical tolerance.
 
 `imp`/`impmap`/`qrpem` are accepted, but on a different basis from the ladder,
 and it is worth being precise about why. Their candidates are **not** scored by
@@ -312,8 +330,9 @@ because SIR never uses the expectation-only evaluation path that 7.1.0 added —
 what it relies on is the objective recompute, which is older. If a version ever
 published the raw importance-sampling objective as `fit$objf` instead, the
 per-run preflight would catch it: the FOCEi re-evaluation at the centre would
-miss by about 19.96 units on a one-eta model, thousands of times the tolerance,
-and the run would be refused before any sampling.
+miss by about 19.96 units on a one-eta model, roughly a hundred times the
+threshold at that objective's scale, and the run would be refused before any
+sampling.
 
 `npag`/`npb` do not have a normal `Omega` to propose from, and the variational
 methods optimise a bound rather than the marginal likelihood. `saem` is refused
@@ -323,10 +342,35 @@ PsN's equivalent check lives in `set_maxeval_zero()`, which sets `MAXEVAL=0`
 for classical methods and `EONLY=1` for `IMP`/`IMPMAP`, but for anything else —
 `SAEM` included — only sets an internal failure flag and prints a warning. That
 flag is discarded by its caller, so the run proceeds with evaluation models
-that still carry the original method. PsN admits the IMP family where this
-package cannot, and is more permissive at the edge; this package refuses rather
-than warns. Adding a method here means validating an evaluator that reproduces
+that still carry the original method. This package refuses where PsN warns and
+continues. Adding a method here means validating an evaluator that reproduces
 its objective, not adding a string to a list.
+
+**The objective preflight has no PsN counterpart at all.** `lib/tool/sir.pm`
+takes its reference from the original `.lst` objective, scores candidates
+through `MAXEVAL=0` — a different code path from the estimation that produced
+that objective — and never compares the two. The centre is not re-evaluated
+either: row 0 of its raw results is built from the original model's output with
+`deltaofv` hardcoded to zero. Its only response to the symptom is to count
+negative dOFVs and, under `-recenter`, move the centre to the minimum-OFV
+sample. So this package re-evaluating the centre is stricter than PsN, not
+looser: PsN sets that dOFV to zero by fiat, this sets it to zero by
+measurement.
+
+**A rank-deficient retained set stops the run, unless you say otherwise.** If
+the retained vectors cannot support a full-rank covariance, flooring the
+deficient direction's eigenvalue does not recover the missing information — it
+fabricates variance the sample never supported, and the next iteration then
+proposes along it. `rankDeficiency = "repair"` proceeds anyway, pinning those
+directions to a token variance far below any supported one, and says plainly
+that it is doing so.
+
+It exists for fits whose *own* covariance is degenerate, where no amount of
+resampling helps. A one-compartment Michaelis-Menten model on single-dose oral
+data can give a `fit$cov` whose smallest eigenvalue is ~1e-10 and a proposal
+with a negative one; `eigen(fit$cov)$values` shows it. Intervals for parameters
+loading on a repaired direction are not evidence from the data, which is why
+this is opt-in.
 
 **The draw-attempt budget is `10 x nSamples`**, where PsN uses
 `2000 x nSamples`. `runSIR()` is called from an interactive R session, where a
