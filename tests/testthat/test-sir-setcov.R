@@ -1,39 +1,39 @@
 # Registering SIR as a covariance method on the fit.
 #
 # nlmixr2est 7.1.0 made setCov() an S3 generic dispatched on the covariance
-# method, and names SIR as the worked example. Most of what that needs already
+# method, and names SIR as the worked example. Some of what that needs already
 # existed here: runSIR() registers its empirical covariance in fit$env$covList
 # under "sir" (.sirRegisterCov()), and setCov() installs a cached covariance
 # BEFORE it dispatches, so setCov(fit, "sir") already worked after a run.
 #
-# Two things did not. "sir" was absent from setCovAllMethods(), so nobody could
-# discover it; and on a fit that had never been through runSIR(), setCov()
-# dispatched to setCov.default() and said "covariance method 'sir' not
-# supported" -- which is wrong. It is supported. There is just nothing to
-# install yet, and the remedy is to run runSIR().
+# setCov.sir() computes one when there is nothing to install, from the options
+# in sirControl() -- see test-sir-setcov-method.R, which covers the run, the
+# seed it starts from and the cache that keys both. This file covers the parts
+# that stand on their own: discoverability, the cache path after a runSIR(),
+# and the name mapping.
 #
-# setCov.sir() deliberately does NOT run SIR. nlmixr2est's contract says a
-# method that cannot compute the covariance should stop(), and computing this
-# one means a full SIR run: minutes to hours, needing a schedule and a
-# directory, and throwing away the diagnostics that are the point of the
-# runSIR() result. A setter should not silently do that.
+# A covariance registered by runSIR() is recorded with NO options, which
+# nlmixr2est reads as "unknown": a plain setCov(fit, "sir") reinstalls it
+# rather than paying for a fresh run, and one naming a control recomputes.
 
 test_that("sir is discoverable as a covariance method", {
   expect_true("sir" %in% nlmixr2est::setCovAllMethods())
 })
 
-test_that("setCov() on a fit that has not run SIR says so", {
+test_that("setCov() on a fit that has not run SIR runs one", {
   skip_on_cran()
+  # The old behaviour was to refuse and point at runSIR(). It now computes the
+  # covariance from sirControl()'s options. Mocked: a real default run is the
+  # PsN schedule, thousands of model evaluations.
   fit <- blockFit()
   expect_false("sir" %in% names(fit$env$covList))
-  err <- tryCatch(
-    nlmixr2est::setCov(fit, "sir"),
-    error = function(e) conditionMessage(e)
-  )
-  # The old message claimed the method was unsupported. The useful message
-  # names the thing to do instead.
-  expect_match(err, "runSIR", fixed = TRUE)
-  expect_false(grepl("not supported", err, fixed = TRUE))
+  seen <- NULL
+  local_mocked_bindings(.sirRunCore = function(...) {
+    seen <<- list(...)
+    stop("ran SIR")
+  })
+  expect_error(nlmixr2est::setCov(fit, "sir"), "ran SIR")
+  expect_equal(seen$nSamples, sirControl()$nSamples)
 })
 
 test_that("setCov() installs the SIR covariance after a run", {

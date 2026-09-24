@@ -48,7 +48,8 @@ the subject count, but nothing in the fit supplies THETA. `runSIR()` therefore
 stops and asks for one of `rseTheta`, `covmatInput`, or `rawresInput` -- see
 [Requirements and Practical Notes](#requirements-and-practical-notes) below. Inventing THETA uncertainty
 from a default assumed RSE would fabricate exactly the quantity SIR is there to
-measure. The fallback takes the free lower-triangular OMEGA elements and, with
+measure. The one exception is the `setCov(fit, "sir")` convenience path below,
+which does seed from an assumed RSE (30% by default) and says so when it does. The fallback takes the free lower-triangular OMEGA elements and, with
 `omegaDf = nSubjects - 1` by default, approximates diagonal SEs as
 `sqrt(2 * omega^2 / df)` and off-diagonal SEs as
 `sqrt((omega[i, i] * omega[j, j] + omega[i, j]^2) / df)`. That route gives a
@@ -149,6 +150,46 @@ sir <- runSIR(
   )
 )
 ```
+
+## SIR as the covariance step
+
+`nlmixr2est::setCov()` switches the covariance a fit reports between methods
+such as `"r,s"` and `"analytic"`. `nlmixr2sir` adds `"sir"`, which runs SIR at
+the fit's estimates and installs the resampled covariance as the fit's own, so
+`fit$parFixedDf` reports SIR's standard errors, %RSE and intervals:
+
+```r
+setCov(fit, "sir")                                     # PsN schedule, fixed seed
+setCov(fit, "sir", control = sirControl(workers = 4))  # options via sirControl()
+fit$sir                                                # the SIR result behind it
+
+setCov(fit, "r,s (full)")   # back to the asymptotic covariance
+setCov(fit, "sir")          # and to SIR again, from the cache
+```
+
+The covariance the fit had before stays in `fit$covList`, so swapping back and
+forth costs nothing. A cached SIR covariance is reused only when both the
+`sirControl()` options that shape the result *and* the seed covariance SIR
+started from are unchanged. By default the seed is the installed covariance,
+so installing a different one (`setCov(fit, "analytic")`, say) makes the next
+`setCov(fit, "sir")` recompute. A covariance `runSIR()` registered is recorded
+with no options, so a plain `setCov(fit, "sir")` installs that rather than
+starting a run, while naming a control recomputes. When `"sir"` is installed, the seed it was
+computed from is used again, never SIR's own result.
+`sirControl(seedCov =)` names a seed explicitly.
+
+A fit with no covariance at all still gets one: SIR is then seeded from an
+assumed 30% RSE (`sirControl(rseTheta =)`), and `setCov()` says so. This path
+runs in memory and writes nothing. For the output directory, recovery, and the
+`covmatInput`/`rawresInput` proposal sources, run `runSIR()` and install its
+result:
+
+```r
+sir <- runSIR(fit)
+setCov(fit) <- sir
+```
+
+See `vignette("setCov", package = "nlmixr2sir")`.
 
 ## Diagnostics
 
@@ -446,7 +487,8 @@ For practical use:
   large enough to justify it. Whenever `workers > 1`, `workers * rxThreads`
   must not exceed the machine's core count.
 * `nlmixr2est::setCov(fit, "sir")` switches the fit's reported uncertainty to
-  the SIR result after a run.
+  the SIR result: it installs the covariance from a previous `runSIR()` when
+  there is one, and otherwise runs SIR itself with `sirControl()`'s options.
 
 ## Acknowledgments
 
