@@ -194,15 +194,21 @@ setCov(fit) <- sir
 This checks that the run was made on this fit (same model, data and estimates),
 installs its covariance as `"sir"`, and stores the result as `fit$sir`.
 
-`runSIR()` also registers its covariance in `fit$covList` when it finishes.
-`runSIR()` seeds each iteration from its own saved state, so its result is not
-the covariance `setCov(fit, "sir")` would compute. A plain `setCov(fit, "sir")`
-therefore recomputes rather than reusing it. To swap back to the `runSIR()`
-covariance later, install the stored result again:
+`runSIR()` also registers its covariance in `fit$covList` when it finishes, and
+that covariance is recorded with no options: `runSIR()` takes its own schedule
+and seeds each iteration from its own saved state, so its result is not the
+covariance any particular `sirControl()` would compute. nlmixr2est reads an
+unrecorded covariance as "computed with unknown options", which means a plain
+`setCov(fit, "sir")` installs it rather than starting a run:
 
 ```{r reinstall, eval = FALSE}
-setCov(fit) <- fit$sir
+setCov(fit, estCov)   # away from SIR
+setCov(fit, "sir")    # back to the runSIR() covariance, no new run
 ```
+
+Naming a control is a different request, so it recomputes:
+`setCov(fit, "sir", control = sirControl(...))` runs SIR with those options,
+seeded from whatever the previous run started from.
 
 ## A fit without a covariance step
 

@@ -77,6 +77,22 @@
   invisible(TRUE)
 }
 
+# Forget the options recorded for `label`, leaving it "computed with unknown
+# options" -- which nlmixr2est reuses for a request that names no control.
+.sirDropCovOptions <- function(env, label) {
+  rec <- if (exists("covOptions", envir = env, inherits = FALSE)) {
+    get("covOptions", envir = env)
+  } else {
+    NULL
+  }
+  if (is.null(rec) || is.null(rec[[label]])) {
+    return(invisible(FALSE))
+  }
+  rec[[label]] <- NULL
+  assign("covOptions", rec, envir = env)
+  invisible(TRUE)
+}
+
 # Record the options a covariance on the fit was computed with, as
 # nlmixr2est's setCov() does for its own.
 .sirSetCovOptions <- function(env, label, options) {
@@ -148,8 +164,18 @@
     # Reuse the seed the installed SIR covariance was computed from: SIR is
     # never seeded from its own result.
     rec <- env$covOptions[["sir"]]
-    if (!is.null(rec$seedMethod) && !identical(rec$seedMethod, "sir")) {
-      return(list(cov = rec$seedCov, method = rec$seedMethod, installed = FALSE))
+    seedMethod <- rec$seedMethod
+    seedCov <- rec$seedCov
+    if (is.null(seedMethod)) {
+      # A covariance registered by runSIR() carries no options; the result
+      # itself records what the run was seeded from.
+      stored <- tryCatch(get("sir", envir = env, inherits = FALSE),
+                         error = function(e) NULL)
+      seedMethod <- attr(stored, "seedMethod", exact = TRUE)
+      seedCov <- attr(stored, "seedCov", exact = TRUE)
+    }
+    if (!is.null(seedMethod) && !identical(seedMethod, "sir")) {
+      return(list(cov = seedCov, method = seedMethod, installed = FALSE))
     }
     cli::cli_abort(c(
       "The installed {.val sir} covariance does not record the covariance it was seeded from.",
@@ -293,27 +319,6 @@ setCov.sir <- function(fit, method, control = sirControl(), ...) {
 
 # setCov(fit) <- runSIR(...) -------------------------------------------------
 
-# The cache key of a runSIR() result. It is never equal to a sirControl() key:
-# runSIR() seeds each iteration differently, so its result is not the covariance
-# setCov(fit, "sir") would compute. The seed is still recorded, so a later
-# setCov(fit, "sir") with "sir" installed knows what it started from.
-.sirRunKey <- function(result) {
-  list(
-    source = "runSIR",
-    run = .sirDigest(list(
-      fingerprint = attr(result, "fingerprint"),
-      schedule = attr(result, "schedule"),
-      control = unclass(attr(result, "control"))[.sirStatisticalControls],
-      seed = attr(result, "seed"),
-      cov = attr(result, "covMatrix")
-    )),
-    # Runs saved before the seed was recorded still name an RSE seed.
-    seedMethod = attr(result, "seedMethod") %||%
-      if (identical(attr(result, "proposalSource"), "rse")) "rse",
-    seedCov = .sirSeedKeyCov(attr(result, "seedCov"))
-  )
-}
-
 # A SIR result can only describe the fit it was run on.
 .sirCheckOwnership <- function(fit, result) {
   fp <- attr(result, "fingerprint")
@@ -356,12 +361,35 @@ setCovValue.nlmixr2SIR <- function(value, fit, method = NULL, ...) {
   if (is.null(covMat)) {
     cli::cli_abort("The SIR covariance cannot be installed on {.arg fit}.")
   }
+  key <- attr(value, "covOptions", exact = TRUE)
+  extra <- stats::setNames(list(value), method)
+  if (is.null(key)) {
+    # A runSIR() result is not what any sirControl() would compute, so it gets
+    # no key: unrecorded means a later plain setCov(fit, method) reinstalls it,
+    # while one naming a control recomputes. setCov<- records the options it is
+    # given, so the entry is dropped again afterwards through `extra`, which is
+    # assigned last.
+    extra[["covOptions"]] <- .sirCovOptionsWithout(fit, method)
+  }
   list(
     cov = covMat,
     method = method,
-    options = attr(value, "covOptions", exact = TRUE) %||% .sirRunKey(value),
-    extra = stats::setNames(list(value), method)
+    options = key,
+    extra = extra
   )
+}
+
+# The fit's covOptions with `label` removed, for `extra` to reinstate.
+.sirCovOptionsWithout <- function(fit, label) {
+  env <- .sirFitEnv(fit)
+  rec <- if (is.environment(env) &&
+               exists("covOptions", envir = env, inherits = FALSE)) {
+    get("covOptions", envir = env)
+  } else {
+    list()
+  }
+  rec[[label]] <- NULL
+  rec
 }
 
 # runSIR() registration -----------------------------------------------------
@@ -403,7 +431,13 @@ setCovValue.nlmixr2SIR <- function(value, fit, method = NULL, ...) {
     return(invisible(ok))
   }
   .sirRegisterCovList(fit, label, covMat)
-  .sirSetCovOptions(env, label, .sirRunKey(result))
+  # Deliberately no recorded options. nlmixr2est reads an unrecorded covariance
+  # as "computed with unknown options", which it reinstalls for a plain
+  # setCov(fit, "sir") and recomputes for one that names a control. So a fit
+  # that has been through runSIR() installs that covariance rather than paying
+  # for a fresh run, and asking for particular sirControl() options still gets
+  # them.
+  .sirDropCovOptions(env, label)
   assign(label, result, envir = env)
   invisible(TRUE)
 }

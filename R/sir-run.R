@@ -147,14 +147,34 @@ runSIR <- function(
   # against fit$objf, so if the two are on different surfaces the importance
   # weights are not weights for the advertised target. Runs first so an
   # unsupported fit cannot create or overwrite a run directory.
-  .sirCheckObjective(
+  preflight <- .sirCheckObjective(
     fit,
     workers = workers,
     rxThreads = rxThreads,
     objfTolerance = control$objfTolerance,
+    noise = isTRUE(control$objfNoise),
+    noiseTolerance = control$objfNoiseTolerance %||% 1,
     stencil = control$objfStencil,
     stencilTolerance = control$objfStencilTolerance
   )
+
+  # The OFV every dOFV in the FIRST iteration is measured against.
+  #
+  # The evaluator's own value at the centre, not fit$objf. The two differ by
+  # whatever the fit's inner solve and a fresh one disagree about, and that
+  # difference is a constant across candidates: it shifts every dOFV equally,
+  # multiplies every weight by the same factor, and divides out of the
+  # normalised weights. Using the re-evaluated centre makes it exactly zero
+  # instead of merely harmless, and puts iteration 1 on the same footing as
+  # every later iteration -- which already uses an evaluator-produced reference
+  # as soon as recentring fires (see sirRunIteration()).
+  #
+  # PsN does the opposite: lib/tool/sir.pm keeps the original .lst OFV and
+  # hardcodes the centre's own deltaofv to zero without ever evaluating it.
+  initialReferenceOfv <- unname(preflight$reevaluated)
+  if (!checkmate::testNumber(initialReferenceOfv, finite = TRUE)) {
+    initialReferenceOfv <- fit$objf
+  }
 
   # Resolve the initial proposal up front, whatever route supplies it, so its
   # resolved numbers can go into the fingerprint. This also validates file-based
@@ -322,7 +342,7 @@ runSIR <- function(
     mu <- saved_state$nextMu
     proposal_cov <- saved_state$nextCov
     boxcox_state <- saved_state$nextBoxcoxState
-    reference_ofv <- saved_state$nextReferenceOfv %||% fit$objf
+    reference_ofv <- saved_state$nextReferenceOfv %||% initialReferenceOfv
     proposal_source <- saved_state$proposalSource %||% NA_character_
     iter_results <- saved_state$iterations
     iter_summary <- saved_state$iterationSummary
@@ -339,7 +359,7 @@ runSIR <- function(
     mu <- saved_state$nextMu
     proposal_cov <- saved_state$nextCov
     boxcox_state <- saved_state$nextBoxcoxState
-    reference_ofv <- saved_state$nextReferenceOfv %||% fit$objf
+    reference_ofv <- saved_state$nextReferenceOfv %||% initialReferenceOfv
     proposal_source <- saved_state$proposalSource %||% NA_character_
     iter_results <- saved_state$iterations
     iter_summary <- saved_state$iterationSummary
@@ -360,7 +380,7 @@ runSIR <- function(
         "Initial SIR proposal built from {.arg {initial$source}}, not {.code fit$cov}."
       )
     }
-    reference_ofv <- fit$objf
+    reference_ofv <- initialReferenceOfv
     iter_results <- list()
     iter_summary <- data.frame()
     prev_attempted <- NULL
@@ -423,6 +443,7 @@ runSIR <- function(
         omegaDf = omegaDf,
         isLastIteration = is_last,
         referenceOfv = reference_ofv,
+        rankDeficiency = control$rankDeficiency %||% "abort",
         parFixedSe = parFixedSe
       )
     }
@@ -524,6 +545,9 @@ runSIR <- function(
   attr(summary_df, "initialProposalRepair") <- initial_repair
   attr(summary_df, "proposalSource") <- proposal_source
   attr(summary_df, "referenceOfvHistory") <- reference_ofv_history
+  # Recorded because it is no longer fit$objf: reported dOFVs are measured
+  # against this, so it is needed to relate them back to the published fit.
+  attr(summary_df, "initialReferenceOfv") <- initialReferenceOfv
   attr(summary_df, "fingerprint") <- fingerprint
   # Records whether files were actually written, which is saveFiles AND a
   # directory having been supplied -- not the control flag alone.

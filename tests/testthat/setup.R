@@ -237,3 +237,48 @@ sirRawResultsPath <- .sirLazy(local({
     }
   )
 }
+
+# Importance-sampling fits, for the imp-family re-admission (P7).
+#
+# These are the only fixtures whose objective is NOT produced by the method
+# named in est=. nlmixr2est recomputes every imp/impmap/qrpem objective as a
+# nested FOCEi evaluation at the converged estimates (.impmapRecomputeObjf(),
+# nlmixr2est R/impmap.R), so fit$objf is a FOCEi number and SIR scores
+# candidates accordingly. Measured bit-identical; see P7-PROGRESS.md.
+#
+# Single eta deliberately: the eta-Hessian defect that forced the upstream
+# recompute is specific to models with one random effect, so this is the case
+# where the published C++ objective and the FOCEi one diverge most.
+impmapFit <- .sirLazy(suppressMessages(suppressWarnings(
+  nlmixr2est::nlmixr2(
+    theoOneCmt,
+    nlmixr2data::theo_sd,
+    est = "impmap",
+    # With a covariance step: runSIR() needs one to build a proposal, and the
+    # imp family computes its own, so this is the realistic shape of such a fit.
+    control = list(print = 0L, covMethod = "r")
+  )
+)))
+
+# Three-eta counterpart. Models with 2+ random effects are unaffected by that
+# defect, so this is the control case for the one-eta fixture above.
+impmapFitThreeEta <- .sirLazy(suppressMessages(suppressWarnings(
+  nlmixr2est::nlmixr2(
+    threeEtaOneCmt,
+    nlmixr2data::theo_sd,
+    est = "impmap",
+    control = list(print = 0L, covMethod = "")
+  )
+)))
+
+# A separate theoFit() for the setCov tests. setCov() mutates the fit's
+# environment in place, so a test that switches the installed covariance would
+# otherwise leave every later test looking at a fit whose $cov is the SIR one.
+theoFitForSetCov <- .sirLazy(suppressMessages(
+  nlmixr2utils::nlmixr2(
+    theoOneCmt,
+    nlmixr2data::theo_sd,
+    est = "focei",
+    control = list(print = 0L, covMethod = "r")
+  )
+))

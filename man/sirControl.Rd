@@ -90,12 +90,22 @@ workers. Whenever \code{workers > 1}, \code{workers * rxThreads} must not exceed
 machine's core count, since each worker is a separate process running its
 own rxode2 thread pool.}
 
-\item{objfTolerance}{Non-negative number. Before sampling, SIR re-evaluates
-the objective at the fit's own estimates and compares it with
-\code{fit$objf}; the run aborts unless the absolute or relative difference is
-within this tolerance. It is the per-run evidence that candidates are
-scored on the same surface the dOFVs are measured against. Raise it only
-when the difference is understood.}
+\item{objfTolerance}{Non-negative number, default \code{1e-3}, interpreted as a
+\strong{fraction of the objective} (floored at an absolute \code{1e-2}). Before
+sampling, SIR re-evaluates the objective at the fit's own estimates and
+compares it with \code{fit$objf}; the run aborts only if the absolute
+difference exceeds that threshold.
+
+It is relative because that is the scale on which the two things this
+check must separate actually differ: convergence slack measured across 20
+population PK models stayed within \code{1.4e-5} of the objective, while a SAEM
+fit scored under FOCEi is \code{2.3e-2} of it. Those are 1600x apart relatively
+and only 10x apart absolutely.
+
+The difference itself is a constant across candidates, and since dOFVs are
+measured against the re-evaluated centre it does not reach the importance
+weights at all. Refitting at a higher \code{sigdig} shrinks it about 3-4 fold
+per digit.}
 
 \item{objfStencil}{Logical. If \code{TRUE} (default) the objective preflight also
 evaluates small perturbations either side of every parameter and requires

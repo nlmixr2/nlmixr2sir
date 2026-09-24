@@ -1,6 +1,138 @@
 # nlmixr2sir (development version)
 
+## The objective preflight no longer refuses sound runs
+
+* **dOFVs are measured against the re-evaluated centre, not `fit$objf`.** The
+  difference between the two is a constant across candidates, so it shifts
+  every dOFV equally, multiplies every weight by the same factor and divides
+  out of the normalised weights. Using the evaluator's own value at the centre
+  makes it zero by construction. This is stricter than PsN, which keeps the
+  original `.lst` objective and hardcodes the centre's own `deltaofv` to zero
+  without ever evaluating it. The value used is recorded on the result as
+  `attr(, "initialReferenceOfv")`.
+
+* **`objfTolerance` is now a fraction of the objective (default `1e-3`),
+  floored at an absolute `1e-2`.** Measured across 20 population PK models,
+  convergence slack stayed within `1.4e-5` of the objective while a SAEM fit
+  scored under FOCEi sits at `2.3e-2` of it: 1600x apart relatively, and only
+  10x apart absolutely. An absolute threshold could not separate them, and
+  refused 8 of those 20 models. None are refused now. An explicit
+  `objfTolerance = 0` is honoured rather than floored.
+
+* **The evaluator's noise floor is measured and reported.** This is the part of
+  the evaluation error that does *not* cancel between a candidate and the
+  centre, so it is the part that reaches the weights. It is warned about, never
+  refused, and withheld entirely when the estimate is not trustworthy.
+
+* **`rankDeficiency = "repair"` allows a run whose retained vectors cannot
+  support a full-rank covariance**, pinning the unsupported directions to a
+  token variance. The default remains `"abort"`: flooring a deficient direction
+  fabricates variance the sample never supported, and later iterations propose
+  along it, so intervals for parameters loading on such a direction are not
+  evidence from the data.
+
+  It exists for fits whose own covariance is degenerate, where resampling
+  cannot help. A one-compartment Michaelis-Menten model on single-dose oral
+  data gave a `fit$cov` with smallest eigenvalue `3.22e-10` and a proposal with
+  a negative one; raising `nResample` from 200 to 500 changed nothing.
+
+* **The rank-deficiency message names both causes.** It previously offered only
+  "repeated or collinear draws ... increase `nResample`", which is wrong when
+  the proposal is degenerate before any sampling, and sent the reader looking
+  in the wrong place. It now points at `eigen(fit$cov)$values` as well.
+
+## Objective preflight
+
+* **`objfTolerance` now defaults to `1e-2`, not `1e-4`, and warns above
+  `1e-3`.** The old default did not work: the package's own vignette and its
+  own `runSIR()` example both aborted under it, which is to say `runSIR()` did
+  not run on ordinary models.
+
+  The gap the preflight measures — between `fit$objf` and a fresh re-evaluation
+  at the same estimates — is inner-solve convergence slack. `fit$objf` comes
+  from the final outer iteration's inner solve with warm-started etas; the
+  check re-solves the inner problem from scratch. Measured across models it
+  spans roughly `1e-6` to `1.2e-3`, so `1e-4` sat in the middle of its own
+  target's range and fired erratically: `theoFit()` reproduces to `8.2e-5` and
+  passed, while a near-identical one-eta fit reproduced to `1.107e-4` and
+  aborted.
+
+  The new default is set from what a gap *does* rather than from how big it
+  ought to be. A dOFV error of `d` moves an importance weight by `exp(-d/2)`,
+  so `1e-2` costs under 0.5% against dOFV of order 1 to 10. What the check
+  exists for is untouched: a SAEM fit scored under FOCEi is 2.69 OFV units out
+  on `theo_sd`, and the dropped-`agqLow` defect was 6490 — both still refused,
+  by more than two orders of magnitude.
+
+  No formula is used. Only `sigdig` predicts the gap (about 3–4 fold per
+  digit). Eta count does **not** — it is flat from 1 to 12 etas, and a
+  three-eta `theo_sd` fit reproduces 27× worse than a synthetic twelve-eta one
+  — and neither does design collinearity. Both were tested and falsified, and
+  the residual variation is model-specific, so a formula would give false
+  confidence.
+
+  Both messages now name `sigdig` as the remedy, since raising `objfTolerance`
+  hides a gap rather than reducing it.
+
+  Note that `objfTolerance` also gates the stencil's "not quite a local
+  optimum" warning, which is therefore now reported at the same coarser scale.
+  That is deliberate: both ask whether an OFV difference of a given size is
+  worth mentioning, and the answer comes from the same weight argument.
+
+## Estimation methods
+
+* **`runSIR()` now accepts `imp`, `impmap` and `qrpem` fits.** These were
+  previously refused because nlmixr2 had no expectation-only evaluation mode.
+  nlmixr2est 7.1.0 adds one, but the re-admission does not rest on it.
+
+  It rests on a different fact: nlmixr2est recomputes the objective of every
+  imp-family fit as a nested FOCEi evaluation at the converged estimates,
+  because the in-C++ finalize leaves the eta-Hessian without its data term. So
+  `fit$objf` on such a fit has never been the importance-sampling objective —
+  that one is `fit$env$impObj`, which `runSIR()` never reads. Candidates are
+  therefore scored directly as FOCEi, reproducing the calculation that produced
+  the reference rather than re-running importance sampling to arrive at the
+  same number.
+
+  Measured on `theo_sd`, the two routes agree bit-for-bit — 193.6046289649 with
+  one random effect, 116.8319956005 with three — and scoring as FOCEi is 6–9×
+  faster per candidate. The one-eta case is the demanding one: it is where the
+  Hessian defect bites, and the raw objective is ~19.96 units low there, so
+  reproducing 193.60 rather than 173.63 is the evidence SIR is on the
+  recomputed surface. Verified against nlmixr2est 7.1.0; no new minimum version
+  is declared, because SIR never uses the expectation-only path 7.1.0 added, and
+  the per-run objective preflight fails closed if the recompute is ever absent.
+
+  This is a deliberate, documented exception to the rule that `est` selects the
+  objective. It is confined to this family, and `saem`, `npag`/`npb` and the
+  variational methods remain refused.
+
+  **`runSIR()` warns once per run when it does this.** A user who chose
+  `impmap` deliberately is owed the fact that the numbers came from FOCEi. The
+  warning names both methods, says why, and says it is expected. It is raised
+  by the preflight, so it fires once, not once per candidate.
+
+* **The run fingerprint now records `evalMethod`** alongside `estMethod`: the
+  method the objectives were actually produced with, as opposed to the method
+  the fit was run with. On an imp-family run those differ, and `estMethod`
+  alone would describe the run as `impmap` when every objective in it came from
+  FOCEi. It is an identity field, so a state file written under a different
+  scoring mapping is refused on recovery rather than silently reused. State
+  files written before this change lack the field and will be refused on
+  recovery for that reason; re-run rather than recover.
+
 ## SIR as a covariance step
+
+SIR is now registered as a covariance method for `nlmixr2est::setCov()`, so
+`setCov(fit, "sir")` switches a fit's reported uncertainty -- standard errors,
+RSEs, print output -- from the asymptotic covariance to the empirical one SIR
+produced, which is the thing SIR exists to improve on.
+`setCov(fit, fit$covMethod)` puts the original back, since `setCov()` keeps the
+previous covariance in `fit$covList`. `"sir"` also appears in
+`nlmixr2est::setCovAllMethods()` now, so it can be found.
+
+Requires nlmixr2est >= 7.1.0 for the generic and its option-aware cache.
+
 
 * **`setCov(fit, "sir")` installs a SIR covariance on the fit.** It runs SIR at
   the fit's estimates and installs the resampled covariance through
@@ -21,30 +153,16 @@
 
 * **`setCov(fit) <- runSIR(fit, ...)` installs a finished run**, after checking
   that it was run on that fit. Every route keeps the SIR result on the fit as
-  `fit$sir`, and `runSIR()` records the options and seed of the covariance it
-  registers.
+  `fit$sir`. A covariance `runSIR()` registered is recorded with no options,
+  since it is not what any particular `sirControl()` would compute: a plain
+  `setCov(fit, "sir")` installs it rather than starting a run, and one naming a
+  control recomputes.
 
 * The SIR covariance is named with nlmixr2est's full-shape names (`om.*`,
   `cov.*`), so `runSIR()` now registers it for fits whose `fit$cov` has no
   OMEGA block, or no covariance at all, which it previously skipped.
 
 ## Diagnostics and provenance
-
-* **The objective preflight compares at the fit's own ETAs.** The objective at
-  fixed population parameters still depends on where the per-subject ETA
-  optimization stops, so a cold re-evaluation differs from `fit$objf` by that
-  inner-optimization noise: 1.5e-4 for FOCE and Laplace fits on theo_sd, and
-  1.1e-3 on a three-ETA FOCEi model. That is above the 1e-4 tolerance, so
-  `runSIR()` refused fits whose surface was in fact reproduced exactly,
-  including the one in the vignette. The identity check now holds the ETAs at
-  the fit's own values (`fit$etaMat`, so IOV is included). There the objective
-  agrees to about 1e-13 for focei, foce, laplace, agq, fo and focep. The
-  mu-referenced variants agree to about 1e-4, because their regression-updated
-  mu thetas are part of the evaluation. The check still refuses a genuinely
-  different surface. The candidate-style evaluation is still made. It centres
-  the stencil, its gap from `fit$objf` is reported as `innerNoise`, and a gap
-  larger than `objfStencilTolerance` gives a warning. When the fit's ETAs
-  cannot be held, the abort message says so.
 
 * **Every iteration now reports importance-weight degeneracy.** Effective
   sample size (Kish, `1 / sum(p^2)`), its fraction of the usable samples, the

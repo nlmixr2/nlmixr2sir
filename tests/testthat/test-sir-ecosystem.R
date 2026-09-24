@@ -152,7 +152,8 @@ test_that("runSIR registers a covariance that setCov() can select", {
   expect_true("sir" %in% names(covList))
   expect_identical(rownames(covList$sir), rownames(fit$cov))
   expect_false(inherits(try(chol(covList$sir), silent = TRUE), "try-error"))
-  # the result and the options it was computed with are kept with it
+  # the result is kept with it, and the covariance is recorded with no options:
+  # nlmixr2est then reinstalls it for a setCov(fit, "sir") that names no control
   expect_s3_class(fit$sir, "nlmixr2SIR")
-  expect_identical(fit$env$covOptions$sir$source, "runSIR")
+  expect_null(fit$env$covOptions$sir)
 })

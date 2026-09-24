@@ -27,30 +27,6 @@
 #   saem            stochastic MCMC E-step, and its stored objective is a
 #                   different approximation entirely -- 208.512 by Gaussian
 #                   quadrature against 205.820 from FOCEi on theo_sd.
-#   imp/impmap/qrpem    No way to evaluate at fixed parameters. Measured on
-#                   nlmixr2est 7.0.3, theo_sd, est = "impmap":
-#
-#                     * impmapControl() has no EONLY analogue and no
-#                       maxOuterIterations -- nothing that suppresses the
-#                       M-step the way PsN's EONLY=1 does;
-#                     * nIter = 0, the obvious candidate, SEGFAULTS (exit 139,
-#                       reproducible with plain nlmixr2(), nlmixr2sir not
-#                       loaded);
-#                     * nIter >= 1 is the wrong operation regardless. nIter
-#                       counts EM iterations and every one runs an M-step that
-#                       UPDATES the population parameters, so it does not score
-#                       the candidate -- it takes an estimation step away from
-#                       it. objf goes 117.440 (nIter=1), 116.860 (nIter=2),
-#                       converging back to the fit's own 116.829 as it
-#                       re-estimates.
-#
-#                   Separately, an imp-family fit carries two objectives that
-#                   disagree -- fit$objf 116.829 against fit$env$impObj 117.836
-#                   -- so even with a working evaluation mode, which one the
-#                   dOFVs are measured against would still need deciding.
-#
-#                   Supporting these needs an expectation-only mode upstream,
-#                   not a workaround here.
 #   npag/npb        the mixing distribution is not a normal Omega, so the
 #                   whole proposal construction does not apply.
 #   emvi/fbvi/vae   variational bounds, not the marginal likelihood.
@@ -58,9 +34,39 @@
 #
 # Adding a method means validating an evaluator that reproduces ITS objective,
 # not adding a string here. The preflight enforces that at run time.
+# The importance-sampling family is admitted on a DIFFERENT basis from the
+# ladder above, and the difference matters if this list is ever revisited.
+#
+# The ladder is admitted because sirEvalOFV() reproduces each method's own
+# objective. imp/impmap/qrpem are admitted because their objective is not their
+# own: nlmixr2est recomputes it as a nested FOCEi evaluation at the converged
+# estimates for every such fit (.impmapRecomputeObjf(), nlmixr2est
+# R/impmap.R:1106), so fit$objf is already a FOCEi number. SIR scores their
+# candidates as FOCEi to match -- see .sirImpEvalControl() in R/sir-eval.R.
+#
+# That is not a shortcut. Measured on theo_sd at nlmixr2est 7.1.0, one eta and
+# three etas, all agreeing bit-for-bit with fit$objf:
+#
+#   one eta    193.6046289649, against $impObj 193.9889503885
+#   three etas 116.8319956005, against $impObj 117.8403322041
+#
+# The one-eta case is the demanding one: it is where the eta-Hessian defect
+# that forced the upstream recompute bites, and the raw C++ objective is ~19.96
+# units low there. Reproducing 193.60 rather than 173.63 is the evidence that
+# SIR is on the recomputed surface.
+#
+# No minimum nlmixr2est version is asserted for this. SIR never takes the
+# nIter = 0 evaluation path that 7.1.0 added -- it scores as FOCEi -- so what it
+# relies on is .impmapRecomputeObjf() running unconditionally, which is older
+# than 7.1.0 and is verified empirically by the per-run preflight anyway. A
+# version that published the raw importance-sampling objective instead would
+# miss by ~19.96 units on a one-eta model and be refused.
 .sirSupportedEstimationMethods <- local({
   base <- c("focei", "foce", "focep", "laplace", "agq")
-  sort(c("fo", "foi", base, paste0("m", base), paste0("i", base)))
+  sort(c(
+    "fo", "foi", base, paste0("m", base), paste0("i", base),
+    "imp", "impmap", "qrpem"
+  ))
 })
 
 .sirSupportedEstimation <- function(est) {
@@ -79,7 +85,202 @@
       "i" = "Refit with a deterministic method such as {.code est = \"focei\"} to run SIR on this model."
     ))
   }
+  # Announced, not silent. Every other supported method scores candidates with
+  # itself; this family does not, and a user who chose impmap deliberately is
+  # owed the fact that the numbers come from somewhere else. Once per run --
+  # this is the preflight, which runs once, not the evaluator, which runs per
+  # candidate.
+  if (est %in% .sirImpFamilyMethods) {
+    cli::cli_warn(c(
+      "SIR will score {.val {est}} candidates with FOCEi.",
+      "i" = "{.code fit$objf} on an {.val {est}} fit is already a FOCEi re-evaluation at the converged estimates, not the importance-sampling objective. nlmixr2est recomputes it that way for every fit of this family.",
+      "i" = "The importance-sampling objective is {.code fit$env$impObj}, and SIR does not use it.",
+      "i" = "Scoring as FOCEi reproduces {.code fit$objf} exactly and skips an E-step whose result would be discarded. This is expected, not a problem with your fit."
+    ))
+  }
   invisible(est)
+}
+
+# How the objective preflight decides what is worth refusing.
+#
+# The check compares fit$objf with a fresh re-evaluation at the same estimates.
+# That difference is a CONSTANT across candidates -- every candidate is scored
+# by the same evaluator, so it shifts every dOFV equally, and a constant shift
+# in dOFV multiplies every weight by the same factor and divides out of the
+# normalised weights. R/sir-iterate.R already says exactly this where recentring
+# moves the reference.
+#
+# Since runSIR() now measures dOFV against the RE-EVALUATED centre rather than
+# fit$objf, that constant is zero by construction and the difference no longer
+# reaches the weights at all. What remains of this check is its real job:
+# noticing that the evaluator is on a different SURFACE from the fit.
+#
+# Measured on Rik Schoemaker's QR models (P9-PROGRESS.md), the difference was
+# 10x to 116x larger than the part that does not cancel, so aborting on it
+# refused sound runs over the term that provably vanishes.
+#
+# The threshold is RELATIVE because that is the scale on which the two things
+# this check must tell apart actually separate:
+#
+#   convergence slack, 20 QR models   <= 1.4e-5 of the objective
+#   a SAEM fit scored under FOCEi      2.3e-2 of the objective (2.69 on theo_sd)
+#
+# 1600x apart relatively; only 10x apart absolutely (0.27 against 2.69), which
+# is why the absolute default that preceded this could not separate them.
+# 1e-3 sits ~70x above the worst observed slack and ~23x below the SAEM
+# signature.
+.sirObjfAbsFloor <- 1e-2
+
+# Never tighter than the floor: a relative tolerance alone would be absurd on a
+# small objective, and 1e-2 is comfortably achievable at theo_sd scale.
+.sirObjfAbortThreshold <- function(stored, objfTolerance) {
+  # An explicit zero is honoured rather than floored. It is the only way to ask
+  # for exact agreement, the suite uses it to exercise the mismatch path, and
+  # silently overriding a user's zero with 1e-2 would be the kind of quiet
+  # substitution this package refuses elsewhere.
+  if (objfTolerance <= 0) {
+    return(0)
+  }
+  max(objfTolerance * abs(stored), .sirObjfAbsFloor)
+}
+
+# Purely informational, and absolute on purpose: it exists to tell the user
+# that reported dOFVs are measured against a centre that differs from the
+# published fit$objf by this much. Below ~0.1 OFV units nobody needs telling.
+.sirObjfWarnTolerance <- 0.1
+
+# A fixed pseudo-random unit direction that does NOT consume the session's RNG
+# stream. Drawing from the global stream here would shift every subsequent
+# sample the run draws, so the whole run's answer would depend on whether the
+# noise floor was measured.
+# Run `expr` with the session's RNG state restored afterwards.
+#
+# Wrapped around the WHOLE noise measurement, not merely the direction draw:
+# the evaluator goes through the worker plan, which consumes from the stream
+# itself. Without this, whether the noise floor was measured would change every
+# sample the run subsequently draws.
+.sirWithPreservedRng <- function(expr) {
+  hasSeed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
+  old <- if (hasSeed) get(".Random.seed", envir = globalenv()) else NULL
+  on.exit(
+    {
+      if (is.null(old)) {
+        if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
+          rm(".Random.seed", envir = globalenv())
+        }
+      } else {
+        assign(".Random.seed", old, envir = globalenv())
+      }
+    },
+    add = TRUE
+  )
+  force(expr)
+}
+
+.sirFixedDirection <- function(n, seed = 20260921L) {
+  set.seed(seed)
+  v <- stats::rnorm(n)
+  v / sqrt(sum(v^2))
+}
+
+# Measure the evaluator's noise floor: how much the scored objective wanders
+# for reasons that are NOT the objective changing.
+#
+# This is the term the old centre check never measured --
+# e(candidate) - e(centre) -- and it is the only one that reaches the weights.
+#
+# Method: walk a transect through parameter space along a fixed direction,
+# scaled by each parameter's own proposal SD, so the separations are the ones
+# candidates actually have. The true objective is smooth along a straight line,
+# so whatever a low-order polynomial in the step cannot absorb is evaluator
+# slack. Order 4 over 15 points leaves 10 residual degrees of freedom and was
+# measured to sit within ~20% of the order-6 plateau.
+#
+# Measured floors ranged 1e-4 to 2.8e-2 across the QR models -- 280x, and
+# model-specific, which is exactly why it has to be measured per run rather
+# than assumed.
+.sirObjectiveNoise <- function(fit,
+                               ps = .sirParamSpace(fit),
+                               mu = NULL,
+                               nPoints = 15L,
+                               span = 0.25,
+                               workers = NULL,
+                               rxThreads = NULL) {
+  .sirWithPreservedRng(.sirObjectiveNoiseImpl(
+    fit, ps, mu, nPoints, span, workers, rxThreads
+  ))
+}
+
+.sirObjectiveNoiseImpl <- function(fit, ps, mu, nPoints, span, workers,
+                                   rxThreads) {
+  none <- list(noise = NA_real_, nOk = 0L, range = NA_real_)
+  if (is.null(mu)) {
+    mu <- tryCatch(.sirProposalMu(fit, ps), error = function(e) NULL)
+  }
+  if (is.null(mu)) {
+    return(none)
+  }
+  cov <- tryCatch(
+    suppressMessages(sirGetProposalCov(fit)),
+    error = function(e) NULL
+  )
+  if (!is.matrix(cov) || is.null(rownames(cov))) {
+    return(none)
+  }
+  nm <- intersect(names(mu), rownames(cov))
+  if (length(nm) == 0L) {
+    return(none)
+  }
+  sdv <- sqrt(diag(cov)[nm])
+  if (!all(is.finite(sdv)) || all(sdv == 0)) {
+    return(none)
+  }
+  dir <- .sirFixedDirection(length(nm))
+  steps <- seq(-span, span, length.out = nPoints)
+  mat <- t(vapply(
+    steps,
+    function(s) {
+      v <- mu
+      v[nm] <- mu[nm] + s * dir * sdv
+      v
+    },
+    numeric(length(mu))
+  ))
+  colnames(mat) <- names(mu)
+
+  ofv <- tryCatch(
+    sirEvalOFV(fit, mat, workers = workers, rxThreads = rxThreads),
+    error = function(e) rep(NA_real_, nPoints)
+  )
+  ok <- is.finite(ofv)
+  # Order 4 needs 5 coefficients; insist on a few residual degrees of freedom
+  # rather than reporting a number fitted to nothing.
+  if (sum(ok) < 9L) {
+    return(none)
+  }
+  # Order 6, not 4. The residual is only "noise" once the polynomial has
+  # absorbed the shape, and a quartic demonstrably cannot: on QR model N021 a
+  # +/-1 SD transect swings 1208 OFV units, where the quartic residual was
+  # 73.94 and still falling steeply with order -- pure unfitted curvature, and
+  # it produced a false refusal before this was corrected.
+  fitPoly <- tryCatch(
+    stats::lm(ofv[ok] ~ stats::poly(steps[ok], 6L)),
+    error = function(e) NULL
+  )
+  if (is.null(fitPoly)) {
+    return(none)
+  }
+  noise <- stats::sd(stats::residuals(fitPoly))
+  span_range <- diff(range(ofv[ok]))
+
+  # Refuse to report a number the fit does not support. Genuine slack is orders
+  # of magnitude below the transect's own variation (9e-5 of it on N001,
+  # 3.5e-4 on N021 at this span); anything approaching a few percent means the
+  # polynomial is still fitting the objective, not the slack in it.
+  if (is.finite(span_range) && span_range > 0 && noise > 0.02 * span_range) {
+    return(none)
+  }
+  list(noise = noise, nOk = sum(ok), range = span_range)
 }
 
 #' Verify the candidate evaluator reproduces the fit's objective
@@ -90,38 +291,20 @@
 #' for candidates is on the same surface as the objective the dOFVs are
 #' measured against.
 #'
-#' The comparison holds the ETAs at the fit's own values. The objective at
-#' fixed population parameters still depends on where the inner (per-subject
-#' ETA) optimization stops: a FOCE fit on theo_sd scored the same THETA as
-#' 187.29010, 187.29018 and 187.29047 at different points of its own run, and a
-#' cold re-evaluation gives 187.29025. Comparing a cold re-evaluation with
-#' fit$objf therefore measured that inner-optimization noise (up to 1e-3 on the
-#' test fixtures) rather than whether the surface is the same. At the fit's own
-#' ETAs the objective reproduces to ~1e-13 for focei, foce, laplace, agq, fo and
-#' focep, which is the identity this check is for. The mu-referenced variants
-#' (mfocei, ifocei) reproduce less tightly even with the ETAs held -- 8e-5 on a
-#' three-ETA theo_sd model -- because their regression-updated mu thetas are
-#' part of the evaluation.
-#'
-#' The cold evaluation is still made -- it is how candidates are scored -- and
-#' centres the stencil. Its gap from fit$objf is reported as `innerNoise`, and
-#' warned about when it exceeds `stencilTolerance`: candidate dOFVs are
-#' measured against fit$objf, so a cold evaluation that lands far from it (the
-#' inner problem reaching a different ETA mode) would offset every weight.
-#'
 #' @param fit An nlmixr2 fit object.
 #' @param workers,rxThreads Passed to `sirEvalOFV()`.
 #' @param objfTolerance Non-negative scalar. The check passes when the absolute
 #'   *or* relative difference is within this tolerance.
-#' @return Invisibly, a list with `stored`, `reevaluated` (at the fit's
-#'   ETAs), `absDiff`, `relDiff`, `candidateCentre` (scored as candidates are),
-#'   `innerNoise` and `stencil`.
+#' @return Invisibly, a list with `stored`, `reevaluated`, `absDiff`, `relDiff`.
 #' @noRd
 .sirCheckObjective <- function(
   fit,
   workers = NULL,
   rxThreads = NULL,
-  objfTolerance = 1e-4,
+  objfTolerance = 1e-3,
+  noise = TRUE,
+  noiseTolerance = 1,
+  warnTolerance = .sirObjfWarnTolerance,
   stencil = TRUE,
   stencilTolerance = 1
 ) {
@@ -141,39 +324,18 @@
   ps <- .sirParamSpace(fit)
   mu <- .sirProposalMu(fit, ps)
   centre <- matrix(mu, nrow = 1L, dimnames = list(NULL, names(mu)))
-  # Scored exactly as every candidate will be, ETAs re-optimized.
-  candidateCentre <- unname(sirEvalOFV(
+  reevaluated <- unname(sirEvalOFV(
     fit,
     centre,
     workers = workers,
     rxThreads = rxThreads
   )[[1L]])
 
-  if (!is.finite(candidateCentre)) {
+  if (!is.finite(reevaluated)) {
     cli::cli_abort(c(
       "The objective could not be reevaluated at the fitted estimates.",
       "i" = "Every SIR candidate is scored the same way, so none would succeed."
     ))
-  }
-
-  # The identity check proper: the same objective at the fit's own ETAs. A fit
-  # without ETAs to hold (none estimated, or none reported) falls back to the
-  # candidate evaluation, which is then the only comparison available.
-  etaMat <- .sirFitEtaMat(fit)
-  reevaluated <- if (is.null(etaMat)) {
-    NA_real_
-  } else {
-    unname(sirEvalOFV(
-      fit,
-      centre,
-      workers = 1L,
-      rxThreads = rxThreads,
-      fixEtas = etaMat
-    )[[1L]])
-  }
-  heldEtas <- is.finite(reevaluated)
-  if (!heldEtas) {
-    reevaluated <- candidateCentre
   }
 
   abs_diff <- abs(reevaluated - stored)
@@ -189,7 +351,7 @@
   # exactly what a SAEM fit scored under FOCEi would show.
   stencil <- if (isTRUE(stencil)) {
     .sirObjectiveStencil(
-      fit, ps, mu, candidateCentre,
+      fit, ps, mu, reevaluated,
       workers = workers, rxThreads = rxThreads
     )
   } else {
@@ -201,41 +363,72 @@
     reevaluated = reevaluated,
     absDiff = abs_diff,
     relDiff = rel_diff,
-    candidateCentre = candidateCentre,
-    innerNoise = candidateCentre - stored,
-    stencil = stencil
+    stencil = stencil,
+    noise = NA_real_,
+    abortThreshold = NA_real_
   )
 
   # Absolute tolerance only. A relative tolerance on the raw OFV is the wrong
   # scale: the objective carries additive constants and grows with the number
   # of observations, while the weights depend on DIFFERENCES in OFV. On an
   # objective of 50,000 a relative 1e-4 would wave through five OFV units.
-  if (abs_diff > objfTolerance) {
+  abortThreshold <- .sirObjfAbortThreshold(stored, objfTolerance)
+  # Local alias: cli treats a `{}` expression starting with a dot as a style
+  # name, so `{.sirObjfAbsFloor}` errors rather than interpolating.
+  absFloor <- .sirObjfAbsFloor
+  out$abortThreshold <- abortThreshold
+  if (abs_diff > abortThreshold) {
     cli::cli_abort(c(
       "SIR cannot reproduce the fit's objective at its own estimates.",
       "x" = "Stored {.code fit$objf}: {format(stored, digits = 10)}",
-      "x" = if (heldEtas) {
-        "Reevaluated at the same estimates and ETAs: {format(reevaluated, digits = 10)}"
-      } else {
-        "Reevaluated at the same estimates: {format(reevaluated, digits = 10)}"
-      },
-      "i" = "Absolute difference {format(abs_diff, digits = 4)}; tolerance {objfTolerance} (absolute).",
-      "i" = if (!heldEtas) {
-        "The fit's own ETAs could not be held for this comparison, so the ETAs were re-optimized; part of the difference may be inner-optimization noise rather than a different surface."
-      },
-      "i" = "Candidates would be scored on a different surface from the dOFV reference, so the importance weights would not be meaningful.",
-      "i" = "Raise {.code runSIRControl(objfTolerance =)} only if this difference is understood and acceptable."
+      "x" = "Reevaluated at the same estimates: {format(reevaluated, digits = 10)}",
+      "i" = "Absolute difference {format(abs_diff, digits = 4)}; threshold {format(abortThreshold, digits = 4)} ({objfTolerance} of the objective, floored at {absFloor}).",
+      "i" = "A difference this large relative to the objective is the signature of a different likelihood surface, not of convergence slack, and candidates would not be scored on the surface the dOFVs are measured against.",
+      "i" = "If the fit and the evaluator are on the same surface, refit with a higher {.code sigdig}: each additional digit has been measured to shrink the gap about 3-4 fold."
     ))
   }
 
-  # Candidates are scored cold but measured against fit$objf. Small differences
-  # are inner-optimization noise; a large one means the cold inner problem
-  # lands somewhere else (another ETA mode) and would offset every dOFV.
-  if (abs(out$innerNoise) > stencilTolerance) {
+  # Informational only. Since runSIR() measures dOFV against the re-evaluated
+  # centre, this difference no longer reaches the weights -- but it does mean
+  # reported dOFVs are not measured against the published fit$objf, and at this
+  # magnitude that is worth saying once.
+  if (abs_diff > warnTolerance) {
     cli::cli_warn(c(
-      "Scored the way candidates are, the fitted estimates give an objective {format(abs(out$innerNoise), digits = 4)} away from {.code fit$objf}.",
-      "i" = "Candidates re-optimize their ETAs from scratch, and here that does not return to the fit's own ETAs.",
-      "i" = "Every dOFV is measured against {.code fit$objf}, so the weights carry this offset."
+      "The evaluator's objective at the fitted estimates differs from {.code fit$objf} by {format(abs_diff, digits = 4)}.",
+      "i" = "Stored {.code fit$objf}: {format(stored, digits = 10)}; reevaluated: {format(reevaluated, digits = 10)}.",
+      "i" = "dOFVs are measured against the reevaluated centre, so this constant does not reach the importance weights -- but reported dOFVs will not line up with {.code fit$objf}.",
+      "i" = "This is inner-solve convergence slack. A higher {.code sigdig} shrinks it about 3-4 fold per digit."
+    ))
+  }
+
+  # The part that does NOT cancel, and the only part that reaches the weights.
+  if (isTRUE(noise)) {
+    nz <- .sirObjectiveNoise(fit, ps, mu, workers = workers, rxThreads = rxThreads)
+    out$noise <- nz$noise
+    # Reported, never refused. An earlier draft aborted here and immediately
+    # produced a false refusal on a sound model, which is precisely what this
+    # preflight must not do: a diagnostic whose own estimator can be wrong has
+    # no business stopping a run. If the number is untrustworthy
+    # .sirObjectiveNoise() returns NA and nothing is said at all.
+    if (is.finite(nz$noise) && nz$noise > noiseTolerance) {
+      cli::cli_warn(c(
+        "The objective carries a noise floor of {format(nz$noise, digits = 4)} OFV units.",
+        "i" = "This is the part of the evaluation error that does NOT cancel between a candidate and the centre, so it enters each weight as {.code exp(-noise/2)}: about {format(100 * (1 - exp(-nz$noise / 2)), digits = 2)}%.",
+        "i" = "The run continues. A higher {.code sigdig} shrinks it about 3-4 fold per digit."
+      ))
+    }
+  }
+
+  # Inside tolerance but worth saying out loud. A gap of this size does not
+  # threaten the result -- it moves a weight by well under a percent -- but it
+  # is the signal that the fit is closer to the threshold than most, and the
+  # remedy is cheap.
+  if (abs_diff > .sirObjfWarnTolerance) {
+    cli::cli_warn(c(
+      "The fit reproduces its own objective to {format(abs_diff, digits = 4)}, which is larger than usual.",
+      "i" = "Stored {.code fit$objf}: {format(stored, digits = 10)}; reevaluated: {format(reevaluated, digits = 10)}.",
+      "i" = "Within {.code objfTolerance} ({objfTolerance}), so the run continues, and a gap this size moves an importance weight by well under one percent.",
+      "i" = "This is inner-solve convergence slack. Refitting with a higher {.code sigdig} shrinks it about 3-4 fold per digit if you want it smaller."
     ))
   }
 
@@ -260,7 +453,10 @@
         "i" = "Tolerance is {.code runSIRControl(objfStencilTolerance =)}, currently {stencilTolerance}."
       ))
     }
-    if (stencil$minDOFV < -objfTolerance) {
+    # Absolute, and deliberately NOT objfTolerance: that is now a fraction of
+    # the objective, so using it here would fire this warning whenever a probe
+    # improved by 0.001 -- well inside the measured noise floor on some models.
+    if (stencil$minDOFV < -warnTolerance) {
       cli::cli_warn(c(
         "The fitted estimates are not quite a local optimum of the objective.",
         "i" = "Best probe improved the objective by {format(-stencil$minDOFV, digits = 4)} ({.val {stencil$param[[worst]]}}).",

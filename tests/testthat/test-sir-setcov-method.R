@@ -237,6 +237,7 @@ test_that("setCov(fit) <- runSIR() installs a finished run on its own fit", {
   skip_on_cran()
   fit <- .freshTheoFit()
   method0 <- fit$covMethod
+  cov0 <- fit$cov
   set.seed(3)
   sir <- .sirQuiet(suppressMessages(runSIR(
     fit,
@@ -244,37 +245,46 @@ test_that("setCov(fit) <- runSIR() installs a finished run on its own fit", {
     nResample = 8L,
     control = runSIRControl(saveFiles = FALSE, workers = 1L, objfStencil = FALSE)
   )))
-  # runSIR() registered it, with its options and the result itself
+  # runSIR() registered the covariance and kept the result, with no recorded
+  # options: it is not what any sirControl() would compute.
   expect_true("sir" %in% names(fit$covList))
-  expect_identical(fit$env$covOptions$sir$source, "runSIR")
-  expect_identical(fit$env$covOptions$sir$seedMethod, method0)
+  expect_null(fit$env$covOptions$sir)
   expect_s3_class(fit$sir, "nlmixr2SIR")
+  expect_identical(attr(fit$sir, "seedMethod"), method0)
 
   nlmixr2est::setCov(fit) <- sir
   expect_identical(fit$covMethod, "sir")
   expect_identical(fit$sir, sir)
-  expect_identical(fit$env$covOptions$sir$source, "runSIR")
+  expect_null(fit$env$covOptions$sir)
   expect_true(method0 %in% names(fit$covList))
 
-  # a default setCov(fit, "sir") is a different computation, so it recomputes
+  # A plain setCov(fit, "sir") reinstalls that covariance rather than running
+  # SIR again: unrecorded options are reused when the request names none.
   runs <- .countRuns()
-  .sirQuiet(suppressMessages(nlmixr2est::setCov(fit, "sir", control = .smallSir())))
+  suppressMessages(nlmixr2est::setCov(fit, method0))
+  suppressMessages(nlmixr2est::setCov(fit, "sir"))
+  expect_equal(runs$n, 0L)
+  expect_identical(fit$covMethod, "sir")
+
+  # Naming a control does recompute, seeded from what the run started from.
+  .sirQuiet(suppressMessages(
+    nlmixr2est::setCov(fit, "sir", control = .smallSir())
+  ))
   expect_equal(runs$n, 1L)
-  # ... seeded from what the runSIR() result started from
-  expect_identical(runs$args[[1]]$seedCov, fit$env$covOptions$sir$seedCov)
+  expect_equal(runs$args[[1]]$seedCov, cov0)
+  expect_identical(fit$env$covOptions$sir$seedMethod, method0)
 
   # runSIR() while "sir" is installed keeps the original seed, not SIR's own
-  seed0 <- fit$env$covOptions$sir$seedCov
   set.seed(4)
-  .sirQuiet(suppressMessages(runSIR(
+  sir2 <- .sirQuiet(suppressMessages(runSIR(
     fit,
     nSamples = 16L,
     nResample = 8L,
     control = runSIRControl(saveFiles = FALSE, workers = 1L, objfStencil = FALSE)
   )))
   expect_identical(fit$covMethod, "sir")
-  expect_identical(fit$env$covOptions$sir$seedMethod, method0)
-  expect_identical(fit$env$covOptions$sir$seedCov, seed0)
+  expect_identical(attr(sir2, "seedMethod"), method0)
+  expect_equal(attr(sir2, "seedCov"), cov0)
 
   other <- threeEtaFit()
   expect_error(nlmixr2est::setCov(other) <- sir, "not run on")

@@ -128,8 +128,10 @@ sirUpdateProposal <- function(
   resampledMat,
   boxcox = TRUE,
   capCorrelation = 0.8,
-  centre = NULL
+  centre = NULL,
+  rankDeficiency = c("abort", "repair")
 ) {
+  rankDeficiency <- match.arg(rankDeficiency)
   checkmate::assertMatrix(
     resampledMat,
     mode = "numeric",
@@ -143,7 +145,12 @@ sirUpdateProposal <- function(
   # full-rank covariance. Checked on the untransformed matrix, because that is
   # where the statistical support actually lives; the Box-Cox map below is
   # per-coordinate and monotone, so it cannot add support.
-  .sirCheckProposalRank(resampledMat, what = "retained")
+  rankInfo <- .sirCheckProposalRank(
+    resampledMat,
+    what = "retained",
+    onDeficient = rankDeficiency
+  )
+  rankRepaired <- isTRUE(rankInfo$deficient > 0L)
 
   param_names <- colnames(resampledMat)
   n_col <- ncol(resampledMat)
@@ -182,12 +189,23 @@ sirUpdateProposal <- function(
   cov_mat <- cov(trans_mat)
   dimnames(cov_mat) <- list(param_names, param_names)
   cov_mat <- .sirCapCovCorrelation(cov_mat, capCorrelation = capCorrelation)
-  repaired <- .sirEnsurePosDef(cov_mat, report = TRUE)
+  # A deficient covariance needs a floor big enough to matter. The default
+  # 1e-12 is a roundoff guard and would leave an unsupported direction at
+  # whatever near-zero value it already had, which is not positive definite in
+  # any useful sense. Repairing lifts it to the same relative tolerance the
+  # rank verdict was made at, so the direction becomes a token rather than a
+  # singularity -- and stays orders of magnitude below the supported ones.
+  repaired <- if (rankRepaired) {
+    .sirEnsurePosDef(cov_mat, relTol = 1e-8, report = TRUE)
+  } else {
+    .sirEnsurePosDef(cov_mat, report = TRUE)
+  }
 
   list(
     covMat = repaired$covMat,
     boxcoxParams = bc_params,
-    posDefAdjusted = repaired$adjusted
+    posDefAdjusted = repaired$adjusted,
+    rankRepaired = rankRepaired
   )
 }
 

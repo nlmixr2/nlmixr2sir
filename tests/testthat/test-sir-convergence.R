@@ -481,8 +481,15 @@ test_that("runSIR persists the reference OFV across added iterations", {
   expect_true("nextReferenceOfv" %in% names(state))
   expect_true(is.finite(state$nextReferenceOfv))
 
-  # The reference can only ever improve on the fitted optimum, never worsen.
-  expect_lte(state$nextReferenceOfv, fit$objf + 1e-8)
+  # The reference can only ever improve on where it started, never worsen.
+  # Measured against the INITIAL reference, not fit$objf: since P9 the run
+  # starts from the evaluator's own value at the centre, which can sit
+  # marginally above the published fit$objf (8.2e-05 on this fixture) without
+  # anything being wrong.
+  initialRef <- nlmixr2sir:::.sirCheckObjective(
+    fit, workers = 1L, stencil = FALSE
+  )$reevaluated
+  expect_lte(state$nextReferenceOfv, unname(initialRef) + 1e-8)
 
   # It must equal what the last iteration reported, not fit$objf by default.
   last <- state$iterations[[length(state$iterations)]]

@@ -61,9 +61,34 @@
   est
 }
 
+# The importance-sampling family. These are the one documented exception to
+# "est selects the objective, so dispatch on the fit's own est".
+#
+# nlmixr2est recomputes the objective of EVERY imp/impmap/qrpem fit as a nested
+# FOCEi evaluation at the converged estimates (.impmapRecomputeObjf(),
+# nlmixr2est R/impmap.R:1106), because the in-C++ finalize leaves d(pred)/d(eta)
+# at allocation residue and the eta-Hessian collapses to Omega^-1. So fit$objf
+# on an imp fit is NOT the importance-sampling objective -- that is $impObj,
+# which is a different number and is never what SIR scores against.
+#
+# Scoring such a candidate as its own method would run a MAP pass and an E-step
+# over isample draws per subject and THEN the same nested FOCEi call, to arrive
+# at the number the FOCEi call alone produces. Measured on theo_sd, both one-eta
+# and three-eta: the two routes agree BIT-FOR-BIT, and the FOCEi route is 6-9x
+# faster per candidate. The E-step is pure cost, and it is per candidate.
+.sirImpFamilyMethods <- c("imp", "impmap", "qrpem")
+
 .sirEvalMethod <- function(fit) {
   est <- .sirFitEst(fit)
-  if (is.na(est)) "focei" else est
+  if (is.na(est)) {
+    return("focei")
+  }
+  # Deliberate: the evaluator redirects, the RECORDED method does not. The
+  # allowlist and every provenance record still see the fit's own est.
+  if (est %in% .sirImpFamilyMethods) {
+    return("focei")
+  }
+  est
 }
 
 .sirEvalControlFun <- function(est) {
@@ -73,7 +98,57 @@
   )
 }
 
+# The evaluation control for an imp-family fit.
+#
+# This is the one place the fail-open-is-worse argument below INVERTS. Carrying
+# the fit's whole control is right everywhere else, because an unrecognised
+# setting is then preserved rather than dropped. Here it is wrong twice over:
+#
+#   * the reference number is not produced with the fit's control.
+#     .impmapRecomputeObjf() builds a DEFAULT foceiControl() and carries only
+#     sigdig across (nlmixr2est R/impmap.R:1162-1165). Reproducing fit$objf
+#     means reproducing that recipe, not the impmap control the fit was run
+#     with -- which is not a foceiControl at all.
+#   * carrying it is measurably worse. An impmap evaluation with the fit's own
+#     control reports "diag(V) had non-positive or NA entries; the non-finite
+#     result may be dubious" and "NaNs produced" on $runInfo, which the same
+#     evaluation with a fresh control does not, and takes 3x as long.
+#
+# So: a bare foceiControl() with the evaluation overrides and the fit's sigdig.
+.sirImpEvalControl <- function(fit) {
+  sigdig <- tryCatch(fit$foceiControl$sigdig, error = function(e) NULL)
+  # 4 is nlmixr2est's own fallback in .impmapRecomputeObjf(); matching it keeps
+  # the two recipes identical rather than merely similar.
+  if (is.null(sigdig) || length(sigdig) != 1L || is.na(sigdig)) {
+    sigdig <- 4
+  }
+  ctl <- tryCatch(
+    do.call(
+      nlmixr2est::foceiControl,
+      c(.sirEvalOverrides, list(sigdig = sigdig))
+    ),
+    error = function(e) NULL
+  )
+  # Fail closed, for the same reason the general path does: a candidate scored
+  # on the wrong surface is not detectable from the result.
+  if (is.null(ctl)) {
+    cli::cli_abort(c(
+      "Could not build the FOCEi evaluation control for this importance-sampling fit.",
+      "i" = "SIR scores {.val {.sirImpFamilyMethods}} candidates as FOCEi, because {.code fit$objf} is itself a FOCEi re-evaluation.",
+      "i" = "This is refused rather than approximated."
+    ))
+  }
+  ctl
+}
+
 .sirEvalControl <- function(fit) {
+  # Branch on the RECORDED method, not the evaluation method: .sirEvalMethod()
+  # already maps the imp family onto focei, so asking it here would lose the
+  # very distinction this branch needs.
+  recorded <- .sirFitEst(fit)
+  if (!is.na(recorded) && recorded %in% .sirImpFamilyMethods) {
+    return(.sirImpEvalControl(fit))
+  }
   est <- .sirEvalMethod(fit)
   ctlFun <- .sirEvalControlFun(est)
   ctl <- fit$control
@@ -131,40 +206,7 @@
   ctl
 }
 
-# The fit's own ETAs as an etaMat (one row per subject, one column per ETA),
-# or NULL when the fit has none to offer. fit$etaMat first: it is the shape the
-# estimation takes back (IOV columns included, ID and mixnum dropped). The
-# omega-named columns of fit$eta are the fallback for a fit without it.
-.sirFitEtaMat <- function(fit) {
-  em <- tryCatch(fit$etaMat, error = function(e) NULL)
-  if (!is.null(em)) {
-    em <- tryCatch(as.matrix(em), error = function(e) NULL)
-    if (is.matrix(em) && is.numeric(em) && ncol(em) > 0L && !anyNA(em)) {
-      return(em)
-    }
-  }
-  om <- tryCatch(fit$omega, error = function(e) NULL)
-  eta <- tryCatch(fit$eta, error = function(e) NULL)
-  if (!is.matrix(om) || is.null(rownames(om)) || !is.data.frame(eta)) {
-    return(NULL)
-  }
-  nms <- rownames(om)
-  if (!all(nms %in% names(eta))) {
-    return(NULL)
-  }
-  out <- as.matrix(eta[, nms, drop = FALSE])
-  if (anyNA(out)) {
-    return(NULL)
-  }
-  out
-}
-
-# `fixEtas`, a matrix from .sirFitEtaMat(), holds every subject's ETAs at those
-# values instead of re-optimizing them (maxInnerIterations = 0). Only the
-# preflight uses it: it is how the objective is compared with fit$objf at
-# exactly the ETAs that produced it.
-sirEvalOFV <- function(fit, paramSamples, workers = NULL, rxThreads = NULL,
-                       fixEtas = NULL) {
+sirEvalOFV <- function(fit, paramSamples, workers = NULL, rxThreads = NULL) {
   checkmate::assertClass(fit, "nlmixr2FitCore")
   checkmate::assertMatrix(
     paramSamples,
@@ -197,10 +239,6 @@ sirEvalOFV <- function(fit, paramSamples, workers = NULL, rxThreads = NULL,
   # whole point.
   evalControl <- .sirEvalControl(fit)
   evalEst <- .sirEvalMethod(fit)
-  if (!is.null(fixEtas)) {
-    evalControl$etaMat <- fixEtas
-    evalControl$maxInnerIterations <- 0L
-  }
 
   eval_one <- function(i) {
     row <- paramSamples[i, ]
