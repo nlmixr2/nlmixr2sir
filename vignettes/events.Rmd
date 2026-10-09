@@ -51,7 +51,6 @@ the SIR result to the fit it was run on.
 
 | Field    | Value |
 |----------|-------|
-| `event`  | `"fitResult"` |
 | `fit`    | The `fit` argument as passed to `runSIR()` (captured on entry) |
 | `result` | A slimmed copy of the returned `nlmixr2SIR` object (see below) |
 | `kind`   | `"sir"` |
@@ -61,8 +60,9 @@ The `result` payload is the SIR summary table with only these attributes kept:
 `iterationSummary`, `covMatrix`, `corMatrix`, `sdCorMatrix`, `outputDir`,
 `fitName`, `seed` and `fingerprint` (plus `class`, `names` and `row.names`).
 The resampled parameter vectors (`resampledMat`) and the raw per-sample
-results (`rawResults`) are dropped so a logger stores a small object; they
-remain in the SIR run directory, whose path is in `attr(result, "outputDir")`.
+results (`rawResults`) are dropped so a logger stores a small object; when a
+`directory` is given they remain in the SIR run directory, whose path is in
+`attr(result, "outputDir")`.
 The object returned to the user is untouched.
 
 ## What is not emitted
