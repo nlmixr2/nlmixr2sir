@@ -1,5 +1,12 @@
 # nlmixr2sir (development version)
 
+* `runSIR()` now runs its internal evaluations silently on the rxode2 event
+  bus (when rxode2 has one) and on exit emits one `fitResult` (kind `"sir"`)
+  for the fit, carrying the SIR summary without the resampled parameters or
+  raw results (those stay in the run directory).  A logger such as
+  nlmixr2log then stores one SIR result with the fit.  Nothing changes
+  without a listener.
+
 ## The objective preflight no longer refuses sound runs
 
 * **dOFVs are measured against the re-evaluated centre, not `fit$objf`.** The
