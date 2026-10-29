@@ -79,6 +79,13 @@ runSIR <- function(
   control = runSIRControl(),
   ...
 ) {
+  ## event bus: internal evaluations are silent; one fitResult on exit
+  ## (see rxEvents.R).  `fit` is captured now, before the body can rebind it.
+  force(fit)
+  .evFit <- fit
+  .sirEventEnter()
+  .evCall <- sys.call()
+  on.exit(.sirEventExit(returnValue(), .evFit, .evCall), add = TRUE)
   dots <- list(...)
   if (length(dots) > 0L) {
     cli::cli_abort(c(

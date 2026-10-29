@@ -1,0 +1,175 @@
+---
+title: "nlmixr2sir events for loggers"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{nlmixr2sir events for loggers}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+has_bus <- exists("rxEventListen", asNamespace("rxode2"))
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = has_bus
+)
+```
+
+```{r no-bus, echo = FALSE, eval = !has_bus, results = "asis"}
+cat(
+  "> **Note:** the installed rxode2 has no event bus",
+  "(`rxode2::rxEventListen()` is missing), so the code in this vignette",
+  "is shown but not run.  `runSIR()` works exactly as before; it simply",
+  "emits nothing.\n"
+)
+```
+
+## The rxode2 event bus
+
+rxode2 provides a small in-process event bus.  Operations such as a fit, a
+simulation or a post-fit result call `rxode2::rxEventEmit()`, and any function
+registered with `rxode2::rxEventListen()` is told about it.  Listeners are
+called as `fun(event, ...)`: the event name followed by the payload fields as
+named arguments.  A listener that errors gives a warning and never stops the
+caller.  See `?rxode2::rxEventListen` for the full API.
+
+Events are delivered only from the outermost operation (scope depth 0).  Work
+done inside another operation's scope (`rxode2::rxEventScope()`, or between
+`.rxEventEnter()` and `.rxEventExit()`) is silent, so a logger sees one event
+for what the user asked for, not one per internal fit or solve.  The depth is
+mirrored in the `RXODE2_EVENT_DEPTH` environment variable, so parallel workers
+started inside a scope stay silent too.
+
+nlmixr2sir only uses the bus when the installed rxode2 has one; with an older
+rxode2, or with no listener registered, nothing changes.
+
+## What `runSIR()` emits
+
+`runSIR()` emits exactly one event: a `fitResult` when it returns, attaching
+the SIR result to the fit it was run on.
+
+| Field    | Value |
+|----------|-------|
+| `fit`    | The `fit` argument as passed to `runSIR()` (captured on entry) |
+| `result` | A slimmed copy of the returned `nlmixr2SIR` object (see below) |
+| `kind`   | `"sir"` |
+| `call`   | The `runSIR()` call, normalized by rxode2 (head `runSIR`; large inlined values replaced by `` `<value>` ``) |
+
+The `result` payload is the SIR summary table with only these attributes kept:
+`iterationSummary`, `covMatrix`, `corMatrix`, `sdCorMatrix`, `outputDir`,
+`fitName`, `seed` and `fingerprint` (plus `class`, `names` and `row.names`).
+The resampled parameter vectors (`resampledMat`) and the raw per-sample
+results (`rawResults`) are dropped so a logger stores a small object; when a
+`directory` is given they remain in the SIR run directory, whose path is in
+`attr(result, "outputDir")`.
+The object returned to the user is untouched.
+
+## What is not emitted
+
+- **The internal objective evaluations.**  `runSIR()` enters the bus scope on
+  entry, so the many fixed-parameter evaluations it runs (and any
+  `fitComplete`, `solveComplete` or `fitUpdate` events they would otherwise
+  raise in nlmixr2est or rxode2) are silent.  Parallel workers started through
+  `nlmixr2utils` enter the scope themselves.
+- **Failed runs.**  When `runSIR()` stops with an error there is no result,
+  so it leaves the scope without emitting anything.
+- **Non-fits.**  A `fitResult` is only emitted when `fit` is an nlmixr2 fit
+  (`nlmixr2FitCore`).  If the summary cannot be built, the scope is left
+  silently rather than failing the run.
+- **Nested runs.**  When `runSIR()` itself is called inside another operation
+  (for example from a driver that is already in a scope), its `fitResult` is
+  dropped like any other nested event; the outer operation reports.
+
+## Listening to `runSIR()`
+
+A listener is any `function(event, ...)`.  This one records each event name and
+its payload.
+
+```{r listen}
+library(nlmixr2sir)
+
+events <- new.env()
+events$log <- list()
+rxode2::rxEventListen("demo", function(event, ...) {
+  events$log[[length(events$log) + 1L]] <- list(event = event, payload = list(...))
+})
+rxode2::rxEventListeners()
+```
+
+```{r fit, message = FALSE, results = "hide"}
+three_eta_one_cmt <- function() {
+  ini({
+    tka <- 0.45
+    tcl <- 1.00
+    tv <- 3.45
+    eta.ka ~ 0.6
+    eta.cl ~ 0.3
+    eta.v ~ 0.1
+    add.sd <- 0.7
+  })
+  model({
+    ka <- exp(tka + eta.ka)
+    cl <- exp(tcl + eta.cl)
+    v <- exp(tv + eta.v)
+    linCmt() ~ add(add.sd)
+  })
+}
+
+fit <- rxode2::rxEventScope(nlmixr2utils::nlmixr2(
+  three_eta_one_cmt,
+  data    = nlmixr2data::theo_sd,
+  est     = "focei",
+  control = list(print = 0L)
+))
+```
+
+Wrapping the fit in `rxode2::rxEventScope()` keeps it silent, so only the SIR
+event is recorded below.  A tiny SIR schedule keeps the example quick (far too
+small for real use, so its effective-sample-size warnings are hidden here):
+
+```{r sir, message = FALSE, warning = FALSE, results = "hide"}
+set.seed(20261009)
+sir <- runSIR(
+  fit,
+  nSamples  = c(16L, 16L),
+  nResample = c(8L, 8L),
+  directory = file.path(tempdir(), "sir_events_vignette"),
+  control   = runSIRControl(workers = 1L, recover = FALSE)
+)
+```
+
+All internal evaluations were silent; the listener saw one event:
+
+```{r inspect}
+vapply(events$log, `[[`, "", "event")
+p <- events$log[[1]]$payload
+names(p)
+p$kind
+p$call
+identical(p$fit, fit)
+names(attributes(p$result))
+is.null(attr(p$result, "resampledMat"))  # dropped from the event ...
+is.null(attr(sir, "resampledMat"))       # ... but kept in the returned object
+attr(p$result, "outputDir")
+```
+
+Remove the listener when done:
+
+```{r unlisten}
+rxode2::rxEventUnlisten("demo")
+rxode2::rxEventDepth()
+```
+
+```{r cleanup, include = FALSE}
+unlink(file.path(tempdir(), "sir_events_vignette"), recursive = TRUE)
+```
+
+## Full logging with nlmixr2log
+
+The [nlmixr2log](https://github.com/nlmixr2/nlmixr2log) package is the main
+consumer of these events.  It listens to the bus and records fits, results
+and saved objects in a run log; with it, a `runSIR()` call is stored as one
+SIR result attached to its fit rather than as a run for every internal
+evaluation.  Any other package can listen in the same way as the example
+above.
