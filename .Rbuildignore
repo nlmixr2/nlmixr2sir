@@ -10,3 +10,4 @@
 ^P[0-9]+-experiment-.*\.R$
 ^blog-post-.*\.md$
 ^docs$
+^\.vexp$

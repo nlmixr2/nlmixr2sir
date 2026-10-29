@@ -207,19 +207,7 @@ runSIRControl <- function(
   }
   nlmixr2utils::.validateWorkers(workers)
 
-  for (nm in c("rseTheta", "rseOmega", "rseSigma")) {
-    v <- get(nm)
-    if (!is.null(v)) {
-      checkmate::assertNumeric(
-        v,
-        lower = .Machine$double.eps,
-        finite = TRUE,
-        any.missing = FALSE,
-        min.len = 1L,
-        .var.name = nm
-      )
-    }
-  }
+  .sirAssertRse(rseTheta, rseOmega, rseSigma)
   sources <- c(
     covmatInput = !is.null(covmatInput),
     rseTheta = !is.null(rseTheta),
@@ -282,6 +270,26 @@ runSIRControl <- function(
     ),
     class = "runSIRControl"
   )
+}
+
+# RSE percentages, each NULL or positive; shared by runSIRControl() and
+# sirControl().
+.sirAssertRse <- function(rseTheta, rseOmega, rseSigma) {
+  rse <- list(rseTheta = rseTheta, rseOmega = rseOmega, rseSigma = rseSigma)
+  for (nm in names(rse)) {
+    v <- rse[[nm]]
+    if (!is.null(v)) {
+      checkmate::assertNumeric(
+        v,
+        lower = .Machine$double.eps,
+        finite = TRUE,
+        any.missing = FALSE,
+        min.len = 1L,
+        .var.name = nm
+      )
+    }
+  }
+  invisible(TRUE)
 }
 
 #' @export

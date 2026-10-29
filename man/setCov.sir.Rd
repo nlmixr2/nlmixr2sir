@@ -2,50 +2,51 @@
 % Please edit documentation in R/sir-setcov.R
 \name{setCov.sir}
 \alias{setCov.sir}
-\title{Use a SIR covariance as a fit's covariance}
+\alias{setCovValue.nlmixr2SIR}
+\title{SIR covariance for \code{setCov()}}
 \usage{
-\method{setCov}{sir}(fit, method, ...)
+\method{setCov}{sir}(fit, method, control = sirControl(), ...)
+
+\method{setCovValue}{nlmixr2SIR}(value, fit, method = NULL, ...)
 }
 \arguments{
-\item{fit}{An nlmixr2 fit that has been through \code{\link[=runSIR]{runSIR()}}.}
+\item{fit}{An nlmixr2 fit.}
 
-\item{method}{Covariance method, supplied by \code{\link[nlmixr2est:setCov]{nlmixr2est::setCov()}}.}
+\item{method}{The covariance method, \code{"sir"}.}
 
-\item{...}{Unused; present for consistency with the generic.}
+\item{control}{A \code{\link[=sirControl]{sirControl()}} object. Only needed to change the defaults.}
+
+\item{...}{Ignored.}
+
+\item{value}{A \code{\link[=runSIR]{runSIR()}} result from this fit.}
 }
 \value{
-The SIR covariance, named and ordered like \code{fit$cov}, for
-\code{setCov()} to install.
+\code{setCov.sir()} installs the covariance and returns \code{NULL}, as
+\code{nlmixr2est::setCov()} expects of a method that installs itself.
+\code{setCovValue.nlmixr2SIR()} returns what \verb{nlmixr2est::setCov<-} installs.
 }
 \description{
-Registers SIR as a covariance method for \code{\link[nlmixr2est:setCov]{nlmixr2est::setCov()}}, so that
-\code{setCov(fit, "sir")} switches a fit's reported uncertainty -- its standard
-errors, RSEs and print output -- from the asymptotic covariance to the
-empirical one SIR produced. This is the point of running SIR in the first
-place: the asymptotic covariance is the thing SIR exists to improve on.
+\code{setCov(fit, "sir")} runs sampling importance resampling at the fit's
+estimates, seeded from the fit's covariance, and installs the resampled
+covariance as the fit's covariance: the standard errors change, and the
+previous covariance stays in \code{fit$covList} so \code{setCov()} can swap back. The
+SIR result behind it is kept as \code{fit$sir}.
 }
 \details{
-\code{\link[=runSIR]{runSIR()}} registers its covariance on the fit automatically when it
-finishes, so the usual sequence is
+\code{setCov(fit) <- sir} installs a result already returned by \code{\link[=runSIR]{runSIR()}} the
+same way.
+}
+\examples{
+\dontrun{
+setCov(fit, "sir")
+fit$parFixedDf
+setCov(fit, "r,s") # back to the asymptotic covariance, from the cache
+setCov(fit, "sir") # and back to SIR, also from the cache
 
-\if{html}{\out{<div class="sourceCode">}}\preformatted{sir <- runSIR(fit, ...)
-nlmixr2est::setCov(fit, "sir")
-}\if{html}{\out{</div>}}
-
-and \code{nlmixr2est::setCov(fit, fit$covMethod)} puts the original back, since
-\code{setCov()} keeps the previous covariance in \code{fit$covList}.
-
-This method does \strong{not} run SIR. Computing a SIR covariance means a full
-SIR run -- minutes to hours, needing a sampling schedule and somewhere to
-write -- and it produces convergence and weight diagnostics that a
-covariance setter would throw away. A setter should not silently start that,
-so a fit with no SIR covariance is refused with a pointer to \code{\link[=runSIR]{runSIR()}},
-which is what nlmixr2est asks a method that cannot compute its covariance to
-do.
-
-Requires nlmixr2est >= 7.1.0, which is where \code{setCov()} became a generic.
-On earlier versions \code{setCov(fit, "sir")} still installs a covariance
-\code{\link[=runSIR]{runSIR()}} has already registered, because that path does not dispatch, but
-the method is neither listed by \code{nlmixr2est::setCovAllMethods()} nor able to
-produce this message.
+sir <- runSIR(fit)
+setCov(fit) <- sir
+}
+}
+\seealso{
+\code{\link[=sirControl]{sirControl()}} for the options and how the result is cached.
 }

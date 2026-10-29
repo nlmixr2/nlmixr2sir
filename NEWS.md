@@ -41,34 +41,6 @@
   the proposal is degenerate before any sampling, and sent the reader looking
   in the wrong place. It now points at `eigen(fit$cov)$values` as well.
 
-## Using a SIR covariance on the fit
-
-* **SIR is now registered as a covariance method for `nlmixr2est::setCov()`.**
-  `setCov(fit, "sir")` switches a fit's reported uncertainty — standard errors,
-  RSEs, print output — from the asymptotic covariance to the empirical one SIR
-  produced, which is the thing SIR exists to improve on.
-  `setCov(fit, fit$covMethod)` puts the original back, since `setCov()` keeps
-  the previous covariance in `fit$covList`.
-
-  Most of this already worked: `runSIR()` has always registered its covariance
-  under `"sir"` in `fit$covList`, and `setCov()` installs a cached covariance
-  before it dispatches. What was missing was discoverability and a decent
-  refusal. `"sir"` did not appear in `nlmixr2est::setCovAllMethods()`, and on a
-  fit that had never been through `runSIR()` the error read "covariance method
-  'sir' not supported" — which was wrong. It is supported; there was simply
-  nothing to install.
-
-  `setCov.sir()` deliberately does not run SIR. A SIR run takes minutes to
-  hours, needs a sampling schedule and somewhere to write, and produces
-  convergence and weight diagnostics that installing a covariance would
-  discard, so a fit with no SIR covariance is refused with a pointer to
-  `runSIR()`.
-
-  Requires nlmixr2est >= 7.1.0 for the generic. `DESCRIPTION` is not bumped:
-  the rest of the package works on 7.0.x, where installing an
-  already-registered SIR covariance still works because that path does not
-  dispatch.
-
 ## Objective preflight
 
 * **`objfTolerance` now defaults to `1e-2`, not `1e-4`, and warns above
@@ -148,6 +120,47 @@
   scoring mapping is refused on recovery rather than silently reused. State
   files written before this change lack the field and will be refused on
   recovery for that reason; re-run rather than recover.
+
+## SIR as a covariance step
+
+SIR is now registered as a covariance method for `nlmixr2est::setCov()`, so
+`setCov(fit, "sir")` switches a fit's reported uncertainty -- standard errors,
+RSEs, print output -- from the asymptotic covariance to the empirical one SIR
+produced, which is the thing SIR exists to improve on.
+`setCov(fit, fit$covMethod)` puts the original back, since `setCov()` keeps the
+previous covariance in `fit$covList`. `"sir"` also appears in
+`nlmixr2est::setCovAllMethods()` now, so it can be found.
+
+Requires nlmixr2est >= 7.1.0 for the generic and its option-aware cache.
+
+
+* **`setCov(fit, "sir")` installs a SIR covariance on the fit.** It runs SIR at
+  the fit's estimates and installs the resampled covariance through
+  `nlmixr2est::setCov()`: the standard errors change, and the previous
+  covariance stays in `fit$covList` so `setCov()` can swap between them. The
+  new `sirControl()` holds its options, with the PsN schedule and a fixed
+  random seed by default. It runs in memory and writes nothing to disk.
+
+* **The SIR covariance is cached by its options *and* its seed.** SIR is seeded
+  from the installed covariance, so `setCov(fit, "sir")` reuses a cached SIR
+  covariance only when both the `sirControl()` options and that seed are
+  unchanged. After `setCov(fit, "analytic")`, say, it recomputes. When `"sir"`
+  is installed, the seed it was computed from is used again rather than SIR's
+  own result. `sirControl(seedCov =)` picks a seed explicitly.
+
+* **A fit without a covariance can still get a SIR covariance.** The seed is
+  then an assumed 30% RSE (`sirControl(rseTheta =)`), and `setCov()` says so.
+
+* **`setCov(fit) <- runSIR(fit, ...)` installs a finished run**, after checking
+  that it was run on that fit. Every route keeps the SIR result on the fit as
+  `fit$sir`. A covariance `runSIR()` registered is recorded with no options,
+  since it is not what any particular `sirControl()` would compute: a plain
+  `setCov(fit, "sir")` installs it rather than starting a run, and one naming a
+  control recomputes.
+
+* The SIR covariance is named with nlmixr2est's full-shape names (`om.*`,
+  `cov.*`), so `runSIR()` now registers it for fits whose `fit$cov` has no
+  OMEGA block, or no covariance at all, which it previously skipped.
 
 ## Diagnostics and provenance
 

@@ -54,3 +54,6 @@ po/*~
 # RStudio Connect folder
 rsconnect/
 .positai
+
+# habit-hooks sensor cache
+.vexp/

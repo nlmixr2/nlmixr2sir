@@ -16,7 +16,8 @@ test_that(".sirParamSpace returns the documented columns", {
       "neta2",
       "est",
       "lower",
-      "upper"
+      "upper",
+      "fullCovName"
     )
   )
 })

@@ -44,7 +44,8 @@ distribution, and empirical percentiles give non-parametric confidence intervals
 require no asymptotic assumption.
 
 `runSIR()` implements this algorithm for `nlmixr2` FOCE-I fits, following the PsN
-`sir` workflow where practical.
+`sir` workflow where practical. To make SIR the covariance a fit reports, see
+`vignette("setCov", package = "nlmixr2sir")`.
 
 ---
 

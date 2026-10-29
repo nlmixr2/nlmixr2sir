@@ -24,5 +24,10 @@ Authors:
   \item Justin Wilkins \email{justin.wilkins@occams.com} (\href{https://orcid.org/0000-0002-7099-9396}{ORCID})
 }
 
+Other contributors:
+\itemize{
+  \item Matthew L. Fidler \email{matthew.fidler@gmail.com} (\href{https://orcid.org/0000-0001-8538-6691}{ORCID}) [contributor]
+}
+
 }
 \keyword{internal}

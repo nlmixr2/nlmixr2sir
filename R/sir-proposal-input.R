@@ -381,7 +381,7 @@
 # Pick the initial proposal covariance, following PsN's dispatch order. Returns
 # the raw source matrix; inflation, correlation capping and the
 # positive-definiteness fix are applied downstream by .sirInitialProposal().
-.sirResolveInitialProposal <- function(fit, ps, control) {
+.sirResolveInitialProposal <- function(fit, ps, control, seedCov = NULL) {
   if (!is.null(control$covmatInput)) {
     return(list(
       covMat = .sirProposalFromCovmatInput(ps, control$covmatInput),
@@ -415,6 +415,17 @@
         rseSigma = control$rseSigma
       ),
       source = "rse"
+    ))
+  }
+  if (!is.null(seedCov)) {
+    # A seed chosen by setCov(fit, "sir") that is not the installed fit$cov.
+    return(list(
+      covMat = sirGetProposalCov(
+        fit,
+        capCorrelation = control$capCorrelation,
+        cov = seedCov
+      ),
+      source = "seedCov"
     ))
   }
   list(

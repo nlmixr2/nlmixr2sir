@@ -79,14 +79,23 @@ test_that(".sirCovAsFitCov declines a rank-deficient covariance", {
   expect_null(out)
 })
 
-test_that(".sirCovAsFitCov declines when there is no fit$cov to match", {
+test_that(".sirCovAsFitCov names the covariance when there is no fit$cov", {
+  skip_on_cran()
+  # setCov(fit, "sir") on a fit without a covariance step installs the SIR
+  # covariance under nlmixr2est's full-shape names.
+  s <- sirSummary(iter1()$resampledMat, theoFit())
+  out <- .sirCovAsFitCov(theoFitNoCov(), attr(s, "covMatrix"))
+  expect_identical(rownames(out), c("tka", "tcl", "tv", "add.sd", "om.eta.ka"))
+  expect_equal(out["om.eta.ka", "om.eta.ka"], attr(s, "covMatrix")["eta.ka", "eta.ka"])
+})
+
+test_that(".sirCovAsFitCov keeps fit$cov's order, then the parameters it lacks", {
   skip_on_cran()
   s <- sirSummary(iter1()$resampledMat, theoFit())
-  expect_message(
-    out <- .sirCovAsFitCov(theoFitNoCov(), attr(s, "covMatrix")),
-    "No .*fit\\$cov"
-  )
-  expect_null(out)
+  fit <- theoFitThetaCov()
+  out <- .sirCovAsFitCov(fit, attr(s, "covMatrix"))
+  expect_identical(rownames(out)[seq_len(nrow(fit$cov))], rownames(fit$cov))
+  expect_true("om.eta.ka" %in% rownames(out))
 })
 
 test_that(".sirCovAsFitCov declines on a parameter mismatch", {
@@ -143,4 +152,8 @@ test_that("runSIR registers a covariance that setCov() can select", {
   expect_true("sir" %in% names(covList))
   expect_identical(rownames(covList$sir), rownames(fit$cov))
   expect_false(inherits(try(chol(covList$sir), silent = TRUE), "try-error"))
+  # the result is kept with it, and the covariance is recorded with no options:
+  # nlmixr2est then reinstalls it for a setCov(fit, "sir") that names no control
+  expect_s3_class(fit$sir, "nlmixr2SIR")
+  expect_null(fit$env$covOptions$sir)
 })

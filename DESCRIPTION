@@ -1,9 +1,11 @@
 Package: nlmixr2sir
 Title: Sampling Importance Resampling for nlmixr2 Models
-Version: 0.3
+Version: 0.4
 Authors@R: c(
     person("Justin", "Wilkins", email = "justin.wilkins@occams.com", role = c("aut", "cre"),
-           comment = c(ORCID = "0000-0002-7099-9396"))
+           comment = c(ORCID = "0000-0002-7099-9396")),
+    person("Matthew L.", "Fidler", email = "matthew.fidler@gmail.com", role = "ctb",
+           comment = c(ORCID = "0000-0001-8538-6691"))
   )
 Maintainer: Justin Wilkins <justin.wilkins@occams.com>
 Description: Sampling importance resampling tools for nlmixr2 fits,
@@ -20,7 +22,7 @@ Imports:
     ggplot2,
     lotri,
     mvtnorm,
-    nlmixr2est (>= 7.0.0),
+    nlmixr2est (>= 7.1.0),
     nlmixr2utils (>= 0.3),
     rxode2 (>= 5.0.0),
     stats,

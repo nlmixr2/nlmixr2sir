@@ -25,7 +25,8 @@ sirRunIteration <- function(
   requestedSamples = nSamples,
   isLastIteration = FALSE,
   referenceOfv = NULL,
-  rankDeficiency = c("abort", "repair")
+  rankDeficiency = c("abort", "repair"),
+  parFixedSe = TRUE
 ) {
   rankDeficiency <- match.arg(rankDeficiency)
   omegaFallback <- match.arg(omegaFallback)
@@ -67,7 +68,8 @@ sirRunIteration <- function(
     capCorrelation = capCorrelation,
     omegaFallback = omegaFallback,
     sigmaFallbackRse = sigmaFallbackRse,
-    omegaDf = omegaDf
+    omegaDf = omegaDf,
+    parFixedSe = parFixedSe
   )
 
   ps <- proposal$paramSpace
